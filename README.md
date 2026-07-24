@@ -1,92 +1,126 @@
+<div align="center">
+
+<img src="Resources/AppIcon.png" width="120" alt="VoiceGhostty icon" />
+
 # VoiceGhostty
 
-Mac 原生语音终端:SwiftUI + SwiftTerm + Apple Speech 框架。
+**A voice-first terminal for Claude Code — hold space, talk, and your words land at the command line.**
 
-## 架构
+Native macOS. Push-to-talk dictation, natural-language → command, tabs & splits, and one-click Claude Code *skill* loading.
 
-```
-麦克风 (AVAudioEngine)
-   → 语音识别 (SFSpeechRecognizer, 设备端)
-   → 文本
-   ├─ [听写模式] 本地小模型矫正(Ollama + qwen3:1.7b,去语气词/纠错别字,
-   │             服务没起或超时则静默用原文)
-   └─ [自然语言模式] LLM 生成命令 + 中文解释
-        ├─ Claude API(配置了 llm-api-key 时优先,structured outputs 保证 JSON)
-        └─ Apple 端侧模型(FoundationModels,无 Key 时回落,需 macOS 26+)
-   → 剥离换行 → 直接填到终端光标处(★ 绝不自动回车执行 ★)
-   → 用户在 shell 里回车 → SwiftTerm → PTY → zsh
-```
+[![Build & Release](https://github.com/10XTeams/VoiceGhostty/actions/workflows/release.yml/badge.svg)](https://github.com/10XTeams/VoiceGhostty/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/10XTeams/VoiceGhostty?sort=semver)](https://github.com/10XTeams/VoiceGhostty/releases)
+[![Stars](https://img.shields.io/github/stars/10XTeams/VoiceGhostty?style=social)](https://github.com/10XTeams/VoiceGhostty/stargazers)
+![Platform](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)
+![Swift](https://img.shields.io/badge/Swift-5%2F6.1-orange?logo=swift)
 
-## 构建运行
+[**中文文档 →**](README.zh-CN.md)
+
+</div>
+
+---
+
+> [!NOTE]
+> **Replace this line with a hero GIF.** Record ~10s: hold <kbd>Space</kbd>, say *"list the biggest files here"*, watch it turn into a command at the cursor, then hit Enter. Save it to `docs/demo.gif` and reference it here. This one image drives most of the stars.
+
+## Why
+
+Working with [Claude Code](https://claude.com/claude-code) means a lot of "type a command, run it, read output, type again." VoiceGhostty keeps your hands off the keyboard for the *talking* parts:
+
+- **Talk instead of type.** Hold <kbd>Space</kbd> to dictate straight into the shell prompt.
+- **Say what you want, get the command.** Natural-language mode turns *"undo the last commit but keep the changes"* into `git reset --soft HEAD~1` — with a one-line explanation before you run it.
+- **Never surprise-executes.** Recognized text is dropped at the cursor with newlines stripped. **You** press Enter. Always.
+- **Load Claude Code skills on the fly.** A 🧩 panel syncs skills from your library into the current project's `.claude/skills/`, then fires `/reload-skills`.
+
+## Features
+
+| | |
+|---|---|
+| 🎙 **Push-to-talk** | Hold <kbd>Space</kbd> (≥0.25s) to record, release to stop. A quick tap still types a space. |
+| 🧠 **Two voice modes** | *Dictation* (local Ollama model cleans filler words & typos, offline) and *Natural language* (Claude API or Apple on-device model → command + explanation). |
+| 🌏 **Bilingual recognition** | Chinese & English raced through two recognizers at once — even mixed speech like *"help me ls this folder."* |
+| 🗂 **Tabs & splits** | `⌘T` / `⌘W`, `⌘1…⌘9`, split with `⌘⇧D` / `⌘⇧E`, focus-follows-click routing. |
+| 🧩 **Dynamic skill loading** | Checkbox panel: pick skills from a library, apply, and they're copied into `cwd/.claude/skills/` — unchecking removes them. Auto-runs `/reload-skills`. |
+| 🎨 **Themes & search** | Dark / Light / Solarized Dark / Dracula, `⌘F` scrollback search, live font resize. |
+| ✨ **Claude quick-launch** | Save project dirs; one click runs `cd <dir> && claude` in the active pane. |
+| 🔒 **Safe by design** | Voice never auto-presses Enter. On-device speech recognition. API keys stay in a local config file. |
+
+## Install
+
+### Option A — download a build (fastest)
+
+Grab the latest `.zip` from [**Releases**](https://github.com/10XTeams/VoiceGhostty/releases), unzip, and because the build is ad-hoc signed (not notarized) clear the quarantine flag once:
 
 ```bash
-./make-app.sh
+xattr -cr VoiceGhostty.app
+open VoiceGhostty.app
 ```
 
-> 权限弹窗(麦克风/语音识别)依赖 app bundle 里的 Info.plist,
-> 所以用 `make-app.sh` 打包运行,不要直接 `swift run`。
+Grant **Microphone** and **Speech Recognition** when macOS prompts.
 
-## 使用
+### Option B — build from source
 
-### 语音
-- **按住空格说话**(≥0.25 秒),松开即停;快速点按空格仍是正常输入空格
-- `⌘D` 或点"说话"开始录音,再按一次停止
-- 识别结果**直接填到终端光标处**(剥离换行、不自动回车),用 shell 行编辑,你自己回车执行(路由到当前活动会话)
-- **中英自动识别**:同一路音频同时喂给 zh-CN / en-US 双识别器竞速,
-  含汉字选中文结果,纯英文比置信度;中英混说(如"帮我 ls 一下")也能识别
-
-### 终端(P0 已实现)
-- **标签**:`⌘T` 新建、`⌘W` 关闭、`⌘⇧]`/`⌘⇧[` 前后切换、`⌘1…⌘9` 直达
-- **分屏**:`⌘⇧D` 左右、`⌘⇧E` 上下(每标签最多 2 格),`⌘⌥→` 切换焦点;
-  点击某一格即把语音/执行路由到它,活动格有高亮边框
-- **字号**:`⌘+` 放大、`⌘-` 缩小、`⌘0` 恢复默认
-- **主题**:菜单「显示 → 主题」内置 暗色 / 亮色 / Solarized 暗 / Dracula
-- **搜索**:`⌘F` 打开滚动区搜索,回车下一个、⇧回车上一个,显示 `当前/总数`
-- **复制/粘贴/全选**:系统「编辑」菜单(`⌘C`/`⌘V`/`⌘A`)
-- **Claude 快捷启动**:工具栏 ✨ 下拉菜单,保存常用项目目录,点一下即在当前活动格
-  执行 `cd <目录> && claude`;「添加目录…」新增、「删除」子菜单移除,列表持久保存
-
-### 配置文件
-`~/.config/voiceghostty/config`(`key = value`,`#` 注释),支持 10 个键:
+```bash
+git clone https://github.com/10XTeams/VoiceGhostty.git
+cd VoiceGhostty
+./make-app.sh          # builds release, packages the .app, launches it
 ```
+
+> Permission dialogs need the `Info.plist` inside an app bundle, so use `make-app.sh` — don't `swift run` directly.
+
+Requires **macOS 13+**. The natural-language *Apple on-device* backend needs macOS 26+ with Apple Intelligence; without it, set an Anthropic API key to use Claude instead.
+
+## Configuration
+
+`~/.config/voiceghostty/config` — simple `key = value`, `#` for comments:
+
+```ini
 font-family = Menlo
 font-size   = 14
-theme       = dracula     # dark | light | solarized-dark | dracula
-foreground  = #f8f8f2     # 可选,覆盖主题前景
-background  = #282a36     # 可选,覆盖主题背景
+theme       = dracula          # dark | light | solarized-dark | dracula
 
-# 自然语言模式的 LLM
-llm-provider = auto           # auto | claude | apple(auto:有 Key 走 Claude,否则端侧)
+# Natural-language mode
+llm-provider = auto            # auto | claude | apple
 llm-model    = claude-opus-4-8
-llm-api-key  = sk-ant-...     # 不填则读 ANTHROPIC_API_KEY 环境变量
+llm-api-key  = sk-ant-...       # or leave blank to read $ANTHROPIC_API_KEY
 
-# 听写矫正(本地离线小模型,去语气词/纠错别字)
-correction      = on          # on | off
-llm-local-model = qwen3:1.7b  # 矫正用的 Ollama 模型
+# Dictation correction (local, offline)
+correction      = on
+llm-local-model = qwen3:1.7b
 llm-local-url   = http://127.0.0.1:11434
+
+# Skill library the 🧩 panel lists from
+skill-library-dir = ~/.claude/skills
 ```
-> 从 Finder 启动的 app 拿不到 shell 的环境变量,所以推荐把 Key 写进配置文件
-> (记得 `chmod 600 ~/.config/voiceghostty/config`)。
 
-### 听写矫正模型(可选,断网可用)
-```bash
-brew install ollama
-brew services start ollama    # 后台服务,开机自启
-ollama pull qwen3:1.7b        # ~1.4GB,矫正任务足够
+> Apps launched from Finder don't inherit your shell env, so put the API key in the config file and `chmod 600` it. Full details in [README.zh-CN.md](README.zh-CN.md).
+
+## How it works
+
 ```
-装好后无需任何配置,听写默认过一遍矫正(app 启动时自动预热模型);
-Ollama 没在跑或矫正超时(15 秒)会静默使用原文,绝不阻塞听写。
+Mic (AVAudioEngine)
+  → on-device recognition (SFSpeechRecognizer)
+  → text
+     ├─ [Dictation]        local Ollama model cleans it up (offline, silent fallback)
+     └─ [Natural language] LLM → command + explanation
+                              ├─ Claude API (structured outputs)
+                              └─ Apple on-device model (FoundationModels)
+  → strip newlines → drop at terminal cursor  ★ never auto-Enter ★
+  → you press Enter → SwiftTerm → PTY → zsh
+```
 
-## 路线图
+Built on [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) and Apple's Speech framework.
 
-- [x] 1. SwiftTerm 起 zsh,可敲命令
-- [x] 2. 语音听写 → 待确认区 → 回车执行
-- [x] 3. 待确认区 UI(可编辑、手动确认)
-- [x] **P0. 标签 / 分屏 / 字号 / 主题 / 搜索 / 配置文件**
-- [x] 4. 自然语言 → 命令 + 解释:Apple 端侧模型 FoundationModels(`NL2Command.swift`,需 macOS 26 + Apple Intelligence)
-- [x] P1 #5. 接 Claude API 做 NL2Command(`ClaudeClient.swift`,structured outputs;`llm-provider` 切换)
-- [x] P1 #8(部分). 听写矫正:本地小模型去语气词/纠错别字(Ollama + qwen3:1.7b,`OllamaClient.swift`)
-- [ ] P1. 命令上下文感知、危险命令分级、语音修正、TTS 朗读
-- [ ] 远期: 终端内核迁移 libghostty(性能)
+## Roadmap
 
-> 完整待办见 `backlog.htm`。
+- [x] SwiftTerm shell, voice dictation, editable confirm-before-run
+- [x] Tabs / splits / themes / search / config file
+- [x] Natural language → command (Apple on-device **and** Claude API)
+- [x] Dictation correction via local model
+- [x] Dynamic Claude Code skill loading
+- [ ] Command-context awareness, dangerous-command tiering, voice edits, TTS readback
+- [ ] Long-term: migrate terminal core to libghostty
+
+## Contributing
+
+Issues and PRs welcome. If VoiceGhostty is useful to you, a ⭐ genuinely helps others find it.
