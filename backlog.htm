@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VoiceGhostty 功能 Backlog</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #666; --line: #e2e2e2;
+    --card: #fafafa; --accent: #c0392b; --p0: #e74c3c; --p1: #2980b9; --p2: #27ae60;
+    --chip-bg: #f0f0f0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171a; --fg: #e6e6e6; --muted: #9aa0a6; --line: #2c2e33;
+      --card: #1e1f23; --accent: #ff6b5e; --p0: #ff6b5e; --p1: #5dade2; --p2: #52d17c;
+      --chip-bg: #26282d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1.25rem 4rem; background: var(--bg); color: var(--fg);
+    font: 15px/1.6 -apple-system, "SF Pro Text", "PingFang SC", system-ui, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 1.7rem; margin: 0 0 .25rem; }
+  .sub { color: var(--muted); margin: 0 0 2rem; }
+  h2 { font-size: 1.2rem; margin: 2.5rem 0 1rem; padding-bottom: .4rem; border-bottom: 2px solid var(--line); }
+  .tier-tag { font-size: .7rem; font-weight: 700; padding: .15rem .5rem; border-radius: 4px; color: #fff; vertical-align: middle; margin-left: .5rem; }
+  .t0 { background: var(--p0); } .t1 { background: var(--p1); } .t2 { background: var(--p2); }
+  ul.items { list-style: none; padding: 0; margin: 0; }
+  li.item {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: .85rem 1rem; margin-bottom: .6rem; display: flex; gap: .75rem; align-items: flex-start;
+  }
+  .num { font-weight: 700; color: var(--accent); min-width: 1.5rem; }
+  .body { flex: 1; }
+  .title { font-weight: 600; }
+  .desc { color: var(--muted); font-size: .9rem; margin-top: .2rem; }
+  .chips { margin-top: .45rem; display: flex; flex-wrap: wrap; gap: .35rem; }
+  .chip { font-size: .72rem; background: var(--chip-bg); color: var(--muted); padding: .1rem .5rem; border-radius: 999px; }
+  .rec { background: linear-gradient(90deg, transparent, var(--card)); border-left: 3px solid var(--accent); padding: 1rem 1.2rem; border-radius: 0 8px 8px 0; margin-top: 1.5rem; }
+  table { width: 100%; border-collapse: collapse; font-size: .88rem; margin-top: .5rem; display: block; overflow-x: auto; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  .gap-lack { color: var(--p0); font-weight: 600; }
+  .gap-moat { color: var(--p2); font-weight: 700; }
+  footer { margin-top: 3rem; color: var(--muted); font-size: .8rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>VoiceGhostty 功能 Backlog</h1>
+  <p class="sub">对比 Ghostty 的功能差距，按优先级排列的待办清单 · 生成于 2026-07-20</p>
+
+  <h2>差距全景（vs Ghostty）</h2>
+  <table>
+    <thead><tr><th>维度</th><th>Ghostty</th><th>VoiceGhostty</th><th>差距</th></tr></thead>
+    <tbody>
+      <tr><td>渲染</td><td>Metal GPU 加速</td><td>SwiftTerm (CPU)</td><td>大，非当务之急</td></tr>
+      <tr><td>窗口/标签/分屏</td><td>多窗口 + tabs + splits</td><td>单会话</td><td class="gap-lack">缺</td></tr>
+      <tr><td>配置系统</td><td>config 文件 + 热重载</td><td>无</td><td class="gap-lack">缺</td></tr>
+      <tr><td>主题/配色</td><td>内置数百套 + iTerm2 兼容</td><td>系统默认</td><td class="gap-lack">缺</td></tr>
+      <tr><td>字体</td><td>连字/fallback/字号调节</td><td>SwiftTerm 默认</td><td>中</td></tr>
+      <tr><td>Shell 集成</td><td>提示符标记、cwd 继承、跳转</td><td>无</td><td class="gap-lack">缺</td></tr>
+      <tr><td>快速终端</td><td>Quake 下拉式</td><td>无</td><td>缺</td></tr>
+      <tr><td>命令面板</td><td>有</td><td>无</td><td>缺</td></tr>
+      <tr><td>滚动区搜索</td><td>有</td><td>无</td><td>缺</td></tr>
+      <tr><td>URL 点击/图片协议</td><td>Kitty graphics + OSC8</td><td>无</td><td>中</td></tr>
+      <tr><td>语音/自然语言</td><td>无（也不会有）</td><td>有</td><td class="gap-moat">护城河</td></tr>
+    </tbody>
+  </table>
+
+  <h2>P0 — 让它像个「能用的终端」<span class="tier-tag t0">P0</span><span class="tier-tag t2">✅ 已实现</span></h2>
+  <ul class="items">
+    <li class="item"><span class="num">1</span><div class="body">
+      <div class="title">多标签 + 分屏</div>
+      <div class="desc">SwiftTerm 支持多个 LocalProcessTerminalView，用 TabView / 自绘分屏。当前单会话是最大硬伤。</div>
+      <div class="chips"><span class="chip">SwiftTerm</span><span class="chip">最高优先</span></div>
+    </div></li>
+    <li class="item"><span class="num">2</span><div class="body">
+      <div class="title">字号调节 + 主题</div>
+      <div class="desc">⌘+/⌘- 调字号，内置几套配色（前景/背景/ANSI 调色板）。</div>
+      <div class="chips"><span class="chip">SwiftTerm</span></div>
+    </div></li>
+    <li class="item"><span class="num">3</span><div class="body">
+      <div class="title">复制/粘贴/滚动区搜索</div>
+      <div class="desc">SwiftTerm 有选区 API，补 ⌘F 搜索。</div>
+      <div class="chips"><span class="chip">⌘F</span></div>
+    </div></li>
+    <li class="item"><span class="num">4</span><div class="body">
+      <div class="title">最小配置文件</div>
+      <div class="desc">~/.config/voiceghostty/config —— 字体、配色、快捷键、语音语言列表。先支持 5 个键即可。</div>
+      <div class="chips"><span class="chip">config</span></div>
+    </div></li>
+  </ul>
+
+  <h2>P1 — 把语音护城河挖深（核心差异化）<span class="tier-tag t1">P1</span></h2>
+  <ul class="items">
+    <li class="item"><span class="num">5</span><div class="body">
+      <div class="title">落地步骤 4：接 Claude API 做 NL2Command ★</div>
+      <div class="desc">NL2Command.swift 现为占位。system prompt 严格约束「只输出一条命令 + 一句中文解释」，结果进待确认区。比补分屏更能定义产品。</div>
+      <div class="chips"><span class="chip">Claude API</span><span class="chip">路线图 #4</span><span class="chip">最该先做</span></div>
+    </div></li>
+    <li class="item"><span class="num">6</span><div class="body">
+      <div class="title">命令上下文感知</div>
+      <div class="desc">把 cwd、git status、最近命令喂给 LLM，让「把这些改动提交了」生成正确的 git add/commit。依赖 Shell 集成拿 cwd。</div>
+      <div class="chips"><span class="chip">依赖 Shell 集成</span></div>
+    </div></li>
+    <li class="item"><span class="num">7</span><div class="body">
+      <div class="title">危险命令分级 ★</div>
+      <div class="desc">rm -rf / sudo / dd / git push -f 等在待确认区高亮红框 + 二次确认。把已有安全阀升级成「风险感知的安全阀」。</div>
+      <div class="chips"><span class="chip">安全</span><span class="chip">天然优势</span></div>
+    </div></li>
+    <li class="item"><span class="num">8</span><div class="body">
+      <div class="title">语音修正 / 追加</div>
+      <div class="desc">说「不对，是 8080 端口」时改写待确认区，而不是重来。</div>
+    </div></li>
+    <li class="item"><span class="num">9</span><div class="body">
+      <div class="title">语音朗读输出（TTS）</div>
+      <div class="desc">命令报错或长输出时可选朗读。真正的 voice 终端应双向；无障碍场景加分。</div>
+      <div class="chips"><span class="chip">AVSpeechSynthesizer</span><span class="chip">无障碍</span></div>
+    </div></li>
+  </ul>
+
+  <h2>P2 — 锦上添花<span class="tier-tag t2">P2</span></h2>
+  <ul class="items">
+    <li class="item"><span class="num">10</span><div class="body">
+      <div class="title">命令历史语义搜索</div>
+      <div class="desc">「上次那个连数据库的命令」→ 从 history 语义召回。</div>
+    </div></li>
+    <li class="item"><span class="num">11</span><div class="body">
+      <div class="title">唤醒词 / 常驻监听</div>
+      <div class="desc">替代按住空格，但要谨慎隐私。</div>
+      <div class="chips"><span class="chip">隐私敏感</span></div>
+    </div></li>
+    <li class="item"><span class="num">12</span><div class="body">
+      <div class="title">libghostty 内核迁移</div>
+      <div class="desc">路线图已列，现在不划算，远期再谈。</div>
+      <div class="chips"><span class="chip">远期</span></div>
+    </div></li>
+  </ul>
+
+  <div class="rec">
+    <strong>一句话建议：</strong>先做 P0 #1（分屏/标签）+ P1 #5（接 Claude）+ #7（危险命令分级）这三件。前者让它够格当日常终端，后两者是别人抄不走的东西。GPU 渲染、Kitty 图片协议这些 Ghostty 强项，建议明确放弃追赶。
+  </div>
+
+  <footer>VoiceGhostty · SwiftUI + SwiftTerm + Apple Speech</footer>
+</main>
+</body>
+</html>
