@@ -13,6 +13,7 @@ Native macOS. Push-to-talk dictation, natural-language → command, tabs & split
 [![Stars](https://img.shields.io/github/stars/10XTeams/VoiceGhostty?style=social)](https://github.com/10XTeams/VoiceGhostty/stargazers)
 ![Platform](https://img.shields.io/badge/macOS-13%2B-black?logo=apple)
 ![Swift](https://img.shields.io/badge/Swift-5%2F6.1-orange?logo=swift)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 [**中文文档 →**](README.zh-CN.md)
 
@@ -124,3 +125,7 @@ Built on [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) and Apple's Spe
 ## Contributing
 
 Issues and PRs welcome. If VoiceGhostty is useful to you, a ⭐ genuinely helps others find it.
+
+## License
+
+[MIT](LICENSE) © 10XTeams
