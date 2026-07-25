@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>zh_CN</string>
+	<string>en</string>
 	<key>CFBundleExecutable</key>
 	<string>VoiceGhostty</string>
 	<key>CFBundleIdentifier</key>
@@ -25,8 +25,8 @@
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>VoiceGhostty 需要使用麦克风来接收语音命令。</string>
+	<string>VoiceGhostty needs microphone access to receive voice commands.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>VoiceGhostty 需要语音识别把你说的话转成命令行文本。</string>
+	<string>VoiceGhostty needs speech recognition to turn what you say into command-line text.</string>
 </dict>
 </plist>

@@ -4,39 +4,43 @@ import SwiftTerm
 enum SplitAxis { case horizontal, vertical }
 enum SplitFocus { case left, right, up, down }
 
-/// 会话活动状态(极简三态)。灰=常态、黄=忙碌、绿=完成待输入。
+/// Session activity status (minimal three-state). Gray = normal, yellow = busy, green = done and awaiting input.
 enum SessionStatus {
     case normal, busy, done
 
     var priority: Int { self == .done ? 2 : (self == .busy ? 1 : 0) }
 
-    /// 状态点颜色;常态为不显眼的灰(SwiftUI.Color,避免与 SwiftTerm.Color 歧义)
+    /// Status-dot color; normal is an unobtrusive gray (SwiftUI.Color, to avoid ambiguity with SwiftTerm.Color)
     var dotColor: SwiftUI.Color {
         switch self {
         case .normal: return .secondary.opacity(0.35)
         case .busy:   return .yellow
-        case .done:   return .green   // 完成=绿灯(就绪/该你了,红绿灯语义)
+        case .done:   return .green   // Done = green light (ready / your turn, traffic-light semantics)
         }
     }
 }
 
-/// 一个 zsh 会话(一个分屏格)。
+/// A single zsh session (one split pane).
 final class TerminalSession: ObservableObject, Identifiable {
     let id = UUID()
     let controller: TerminalController
     @Published var title = "zsh"
-    @Published var currentDirectory: String?
-    /// 进程退出后置 true,UI 可据此显示灰态(暂不自动关闭,避免误伤)
+    /// Seeded to the shell's known start directory (home) so the tab shows "~" immediately, instead of
+    /// briefly falling back to the OSC process title (e.g. the computer name) before the first cwd poll.
+    @Published var currentDirectory: String? = NSHomeDirectory()
+    /// Set to true after the process exits; the UI can show a gray state (not auto-closed for now, to avoid accidents)
     @Published var isTerminated = false
-    /// 忙碌/完成状态(仅主线程改;由 SessionStore 的轮询推进)
+    /// Busy/done status (only mutated on the main thread; driven by SessionStore's polling)
     @Published var status: SessionStatus = .normal
 
-    /// 是否当前聚焦的会话:聚焦时不显示忙碌/完成(你正看着,无需提示)
-    private(set) var isFocused = false
-    // 以下三个由后台读线程写、主线程轮询读的普通变量(值幂等,竞争无害)
+    // The following are plain variables written by the background read thread and polled by the main thread (values are idempotent, races are harmless)
     private var lastOutputAt = Date.distantPast
     private var hasActivity = false
     private var bellPending = false
+    // OSC 133 shell integration (precise mode): exact command boundaries, preferred over the output heuristic when present.
+    private var cmdRunning = false          // between OSC 133 C (start) and D (end)
+    private var cmdEndedPending = false     // a command just finished → surface "done" once
+    private var osc133Seen = false          // latched once any 133 marker arrives → switch to precise mode
 
     init(config: Config) {
         controller = TerminalController(config: config)
@@ -44,6 +48,7 @@ final class TerminalSession: ObservableObject, Identifiable {
             DispatchQueue.main.async { self?.title = t.isEmpty ? "zsh" : t }
         }
         controller.onDirectoryChange = { [weak self] d in
+            guard let d else { return }   // keep the last-known directory rather than blanking to the process title
             DispatchQueue.main.async { self?.currentDirectory = d }
         }
         controller.onTerminated = { [weak self] in
@@ -51,60 +56,80 @@ final class TerminalSession: ObservableObject, Identifiable {
         }
     }
 
-    // MARK: - 状态信号(后台线程,只碰普通变量)
+    // MARK: - Status signals (background thread, only touches plain variables)
 
     func noteOutput() { lastOutputAt = Date(); hasActivity = true }
     func noteBell()   { bellPending = true }
+    func noteCommandStart() { cmdRunning = true; osc133Seen = true }
+    func noteCommandEnd()   { osc133Seen = true; if cmdRunning { cmdRunning = false; cmdEndedPending = true } }
 
-    /// 轮询更新当前目录(查 shell 进程 cwd);变化时返回 true 供上层刷新标签栏。
+    /// Poll and update the current directory (queries the shell process cwd); returns true on change so the caller can refresh the tab bar.
     @discardableResult
     func refreshDirectory() -> Bool {
-        let dir = controller.currentShellDirectory
-        guard dir != currentDirectory else { return false }
+        // Ignore nil (shell process not queryable yet / momentarily): never clobber a known directory with nil,
+        // otherwise the tab title would flicker back to the OSC process title.
+        guard let dir = controller.currentShellDirectory, dir != currentDirectory else { return false }
         currentDirectory = dir
         return true
     }
 
-    // MARK: - 状态推进(主线程)
+    // MARK: - Status advancement (main thread)
 
-    func setFocused(_ focused: Bool) {
-        isFocused = focused
-        if focused {                 // 聚焦即清零,回常态
-            status = .normal
-            hasActivity = false
-            bellPending = false
-        }
+    /// Reset to the neutral (gray) state — used for the single terminal you're actively using, so it doesn't nag itself with its own light.
+    /// (`cmdRunning` is left untouched — it reflects real state; only the display-oriented flags are cleared.)
+    @discardableResult
+    func resetStatus() -> Bool {
+        let changed = status != .normal || hasActivity || bellPending || cmdEndedPending
+        status = .normal
+        hasActivity = false
+        bellPending = false
+        cmdEndedPending = false
+        return changed
     }
 
-    /// 轮询推进:铃声→完成;有活动且静默≥阈值→完成;否则忙碌。聚焦会话不动。
-    /// 返回状态是否发生变化(供上层决定是否刷新标签栏)。
+    /// Poll advancement. Returns whether the status changed (so the caller can decide whether to refresh the tab bar).
+    /// - Precise mode (OSC 133 shell integration seen): C → busy (yellow), D → done (green), done persists until reset / next command.
+    /// - Fallback heuristic (no shell integration): bell or "had output then silent ≥ threshold" → done; recent output → busy.
     @discardableResult
     func refreshStatus(silence: TimeInterval) -> Bool {
-        guard !isFocused else { return false }
         let old = status
-        if bellPending {
-            bellPending = false
-            hasActivity = false
-            status = .done
-        } else if hasActivity {
-            if Date().timeIntervalSince(lastOutputAt) >= silence {
+        if osc133Seen {
+            if bellPending {
+                bellPending = false
+                cmdEndedPending = false
                 status = .done
-                hasActivity = false      // 完成后不再重复判定,直到下次输出
-            } else {
+            } else if cmdRunning {
                 status = .busy
+            } else if cmdEndedPending {
+                cmdEndedPending = false
+                status = .done
+            }
+            // else: keep the current status (a finished command stays green until you attend it or start a new one)
+        } else {
+            if bellPending {
+                bellPending = false
+                hasActivity = false
+                status = .done
+            } else if hasActivity {
+                if Date().timeIntervalSince(lastOutputAt) >= silence {
+                    status = .done
+                    hasActivity = false      // Once done, don't judge again until the next output
+                } else {
+                    status = .busy
+                }
             }
         }
         return status != old
     }
 }
 
-/// 一个标签:含 1~2 个分屏格。
+/// A tab: contains 1-2 split panes.
 final class TerminalTab: ObservableObject, Identifiable {
     let id = UUID()
     @Published var panes: [TerminalSession]
     @Published var activePaneID: UUID
     @Published var splitAxis: SplitAxis = .horizontal
-    /// 用户手动改的标签名;为空则回退到进程标题
+    /// A tab name the user manually set; if empty, falls back to the process title
     @Published var customTitle: String?
 
     init(pane: TerminalSession) {
@@ -117,17 +142,18 @@ final class TerminalTab: ObservableObject, Identifiable {
     }
     var isSplit: Bool { panes.count > 1 }
 
-    /// 标签栏显示的名字:手动改名优先;否则用各分屏格的文件夹名(左到右用 - 连接);
-    /// 再退到进程标题。
+    /// The name shown in the tab bar: a manual rename takes priority; otherwise the folder name of each split
+    /// pane (left to right, joined with -); if no directory is known yet, plain "zsh".
+    /// Deliberately does NOT fall back to the OSC process title — some shells set it to the computer name
+    /// (e.g. "my computer"), which we never want surfacing in a tab.
     var displayTitle: String {
         if let custom = customTitle, !custom.isEmpty { return custom }
         let folders = panes.compactMap { Self.folderName($0.currentDirectory) }
         if !folders.isEmpty { return folders.joined(separator: "-") }
-        let title = activePane.title
-        return title.isEmpty ? "zsh" : title
+        return "zsh"
     }
 
-    /// 路径 → 文件夹名;home 显示为 ~
+    /// Path → folder name; home is shown as ~
     private static func folderName(_ path: String?) -> String? {
         guard let path, !path.isEmpty else { return nil }
         if path == NSHomeDirectory() { return "~" }
@@ -135,14 +161,14 @@ final class TerminalTab: ObservableObject, Identifiable {
         return name.isEmpty ? "/" : name
     }
 
-    /// 标签圆点取各分屏格中最紧要的状态(完成 > 忙碌 > 常态)
+    /// The tab dot takes the most important status among the split panes (done > busy > normal)
     var aggregateStatus: SessionStatus {
         panes.map(\.status).max { $0.priority < $1.priority } ?? .normal
     }
 }
 
-/// 全局会话状态:标签集合、活动标签/分屏、字号、主题、搜索栏可见性。
-/// 语音「执行」永远路由到 activeSession。
+/// Global session state: the tab collection, active tab/split, font size, theme, and search-bar visibility.
+/// Voice "execute" always routes to activeSession.
 final class SessionStore: ObservableObject {
     @Published var tabs: [TerminalTab] = []
     @Published var activeTabID: UUID?
@@ -150,10 +176,10 @@ final class SessionStore: ObservableObject {
     @Published var fontSize: CGFloat
     @Published var searchVisible = false
 
-    /// 配置文件里的默认字号,⌘0 归位用
+    /// The default font size from the config file, used by ⌘0 to reset
     private let defaultFontSize: CGFloat
 
-    /// 状态轮询:每 0.5s 推进各会话的忙碌/完成;输出静默阈值 2s
+    /// Status polling: every 0.5s advance each session's busy/done; output-silence threshold is 2s
     private var statusTimer: Timer?
     private let silenceThreshold: TimeInterval = 2.0
 
@@ -170,32 +196,37 @@ final class SessionStore: ObservableObject {
 
     private func tickStatus() {
         var changed = false
+        let activeID = activeSession?.id
         for tab in tabs {
             for pane in tab.panes {
-                if pane.refreshStatus(silence: silenceThreshold) { changed = true }
-                if pane.refreshDirectory() { changed = true }   // 更新 cwd → 标签名跟着变
+                // Keep the single terminal you're actively using neutral (no self-nagging light).
+                // In a split, every pane advances its own status so both show yellow (running) / green (done).
+                if !tab.isSplit && pane.id == activeID {
+                    if pane.resetStatus() { changed = true }
+                } else {
+                    if pane.refreshStatus(silence: silenceThreshold) { changed = true }
+                }
+                if pane.refreshDirectory() { changed = true }   // Update cwd → the tab name changes accordingly
             }
         }
-        // 会话是嵌套 ObservableObject,状态/目录变了要主动通知标签栏(观察的是 store)重绘
+        // Sessions are nested ObservableObjects, so when status/directory changes we must actively notify the tab bar (which observes the store) to redraw
         if changed { objectWillChange.send() }
     }
 
-    /// 聚焦会话唯一化:只有当前活动标签的活动分屏格为 focused,其余都不是。
+    /// Notify observers after a focus change so the tab bar / active-pane highlight (and the active tab's neutral dot) refresh.
     private func refreshFocusFlags() {
-        let activeID = activeSession?.id
-        for tab in tabs { for pane in tab.panes { pane.setFocused(pane.id == activeID) } }
-        objectWillChange.send()   // 聚焦会话被清为常态,标签点需刷新
+        objectWillChange.send()
     }
 
-    // MARK: - 派生
+    // MARK: - Derived
 
     var activeTab: TerminalTab? {
         tabs.first { $0.id == activeTabID } ?? tabs.first
     }
-    /// 语音/执行/搜索的目标会话
+    /// Target session for voice / execute / search
     var activeSession: TerminalSession? { activeTab?.activePane }
 
-    // MARK: - 会话工厂(统一注入当前字号并接管焦点)
+    // MARK: - Session factory (uniformly injects the current font size and takes over focus)
 
     private func makeSession() -> TerminalSession {
         var cfg = config
@@ -205,13 +236,15 @@ final class SessionStore: ObservableObject {
             guard let self, let session else { return }
             self.focus(session)
         }
-        // 输出/铃声回调在后台线程触发,只改会话的普通变量(线程安全)
+        // Output/bell/command callbacks fire on the background thread and only mutate the session's plain variables (thread-safe)
         session.controller.onOutput = { [weak session] in session?.noteOutput() }
         session.controller.onBell   = { [weak session] in session?.noteBell() }
+        session.controller.onCommandStart = { [weak session] in session?.noteCommandStart() }
+        session.controller.onCommandEnd   = { [weak session] in session?.noteCommandEnd() }
         return session
     }
 
-    // MARK: - 标签操作
+    // MARK: - Tab operations
 
     func addTab() {
         let tab = TerminalTab(pane: makeSession())
@@ -229,7 +262,7 @@ final class SessionStore: ObservableObject {
         guard let idx = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         tabs.remove(at: idx)
         if tabs.isEmpty {
-            addTab()                        // 永远保留至少一个标签
+            addTab()                        // Always keep at least one tab
         } else {
             let next = tabs[min(idx, tabs.count - 1)]
             activeTabID = next.id
@@ -246,7 +279,7 @@ final class SessionStore: ObservableObject {
     func selectNextTab() { shiftTab(+1) }
     func selectPreviousTab() { shiftTab(-1) }
 
-    /// ⌘9:跳到最后一个标签(对齐 Ghostty)
+    /// ⌘9: jump to the last tab (matching Ghostty)
     func selectLastTab() {
         guard let last = tabs.last else { return }
         activeTabID = last.id
@@ -260,7 +293,7 @@ final class SessionStore: ObservableObject {
         focusActive()
     }
 
-    // MARK: - 分屏操作(每个标签最多 2 格)
+    // MARK: - Split operations (at most 2 panes per tab)
 
     func splitActiveTab(axis: SplitAxis = .horizontal) {
         guard let tab = activeTab, !tab.isSplit else { return }
@@ -271,7 +304,7 @@ final class SessionStore: ObservableObject {
         focusActive()
     }
 
-    /// ⌘W:有分屏先关活动格,否则关整个标签
+    /// ⌘W: if split, close the active pane first; otherwise close the whole tab
     func closeActivePaneOrTab() {
         guard let tab = activeTab else { return }
         if tab.isSplit {
@@ -283,24 +316,24 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    /// 按方向把焦点切到相邻分屏格(⌘⌥←/→/↑/↓,对齐 Ghostty 的 goto_split)。
-    /// 每标签最多 2 格:横向分屏认左右,纵向分屏认上下,其余方向忽略。
+    /// Move focus to the adjacent split pane by direction (⌘⌥←/→/↑/↓, matching Ghostty's goto_split).
+    /// At most 2 panes per tab: a horizontal split recognizes left/right, a vertical split recognizes up/down, other directions are ignored.
     func focusSplit(_ direction: SplitFocus) {
         guard let tab = activeTab, tab.isSplit else { return }
         let wantSecond: Bool
         switch (tab.splitAxis, direction) {
         case (.horizontal, .right), (.vertical, .down): wantSecond = true
         case (.horizontal, .left),  (.vertical, .up):   wantSecond = false
-        default: return   // 与分屏轴垂直的方向不动
+        default: return   // A direction perpendicular to the split axis does nothing
         }
         let target = wantSecond ? tab.panes[1] : tab.panes[0]
         tab.activePaneID = target.id
         focusSession(target)
     }
 
-    // MARK: - 焦点
+    // MARK: - Focus
 
-    /// 某个终端视图成为第一响应者时回调:同步活动标签 + 活动分屏
+    /// Callback when a terminal view becomes first responder: sync the active tab + active pane
     private func focus(_ session: TerminalSession) {
         for tab in tabs where tab.panes.contains(where: { $0.id == session.id }) {
             activeTabID = tab.id
@@ -310,7 +343,7 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    /// 把键盘焦点交给当前活动会话的终端视图
+    /// Give keyboard focus to the terminal view of the current active session
     func focusActive() {
         guard let session = activeSession else { return }
         focusSession(session)
@@ -324,7 +357,7 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    // MARK: - 字号 / 主题(应用到所有会话)
+    // MARK: - Font size / theme (applied to all sessions)
 
     private let minFontSize: CGFloat = 8
     private let maxFontSize: CGFloat = 48
@@ -344,7 +377,7 @@ final class SessionStore: ObservableObject {
         forEachSession { $0.controller.setTheme(themeName) }
     }
 
-    /// ⌘K:清屏(对齐 Ghostty 的 clear_screen)
+    /// ⌘K: clear the screen (matching Ghostty's clear_screen)
     func clearActiveScreen() {
         activeSession?.controller.clearScreen()
     }

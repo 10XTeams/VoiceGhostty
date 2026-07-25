@@ -2,8 +2,8 @@ import AppKit
 import Darwin
 import SwiftTerm
 
-/// 查某个进程的当前工作目录(不依赖 shell 集成 / OSC 7)。
-/// 对 shell 进程用它:即使前台跑着 claude 等 TUI,shell 的 cwd 仍是「进入前所在的文件夹」。
+/// Query a process's current working directory (does not rely on shell integration / OSC 7).
+/// Use it on the shell process: even when a TUI like claude runs in the foreground, the shell's cwd is still "the folder you were in before entering it".
 func processCurrentDirectory(_ pid: pid_t) -> String? {
     guard pid > 0 else { return nil }
     var info = proc_vnodepathinfo()
@@ -14,12 +14,12 @@ func processCurrentDirectory(_ pid: pid_t) -> String? {
     }
 }
 
-/// LocalProcessTerminalView 的子类:
-/// - 点击回调(onFocus)让 SessionStore 同步「活动分屏」
-/// - PTY 输出(onOutput)/ 终端铃声(onBell)回调用于「忙碌/完成」状态判定
-///   (becomeFirstResponder 是 public 不能重写,故用 mouseDown 判定焦点;
-///    dataReceived / bell 均为 open,可安全拦截。)
-/// 注意:onOutput / onBell 在后台读线程触发,回调里只可改普通变量,勿碰 @Published。
+/// A subclass of LocalProcessTerminalView:
+/// - The click callback (onFocus) lets SessionStore sync the "active split"
+/// - PTY output (onOutput) / terminal bell (onBell) callbacks are used to judge "busy/done" status
+///   (becomeFirstResponder is public and cannot be overridden, so mouseDown is used to detect focus;
+///    dataReceived / bell are both open and can be safely intercepted.)
+/// Note: onOutput / onBell fire on the background read thread; callbacks may only mutate plain variables, never touch @Published.
 final class FocusReportingTerminalView: LocalProcessTerminalView {
     var onFocus: (() -> Void)?
     var onOutput: (() -> Void)?
@@ -41,26 +41,26 @@ final class FocusReportingTerminalView: LocalProcessTerminalView {
     }
 }
 
-/// 持有一个 SwiftTerm 终端视图,负责起 PTY/zsh、应用配置、写入命令。
-/// 一个 TerminalController == 一个 zsh 会话(一个标签或一个分屏格)。
+/// Holds a SwiftTerm terminal view, responsible for starting the PTY/zsh, applying config, and writing commands.
+/// One TerminalController == one zsh session (one tab or one split pane).
 final class TerminalController: NSObject, ObservableObject, LocalProcessTerminalViewDelegate {
     let terminalView: FocusReportingTerminalView
 
-    /// 当前字号(SessionStore 统一缩放时读写)
+    /// Current font size (read/written when SessionStore scales uniformly)
     private(set) var config: Config
 
-    /// shell 进程的当前工作目录(轮询用,不依赖 OSC 7)
+    /// The shell process's current working directory (used by polling, does not rely on OSC 7)
     var currentShellDirectory: String? {
         guard let process = terminalView.process else { return nil }
         return processCurrentDirectory(process.shellPid)
     }
 
-    /// 焦点/标题/工作目录/进程退出回调,由 SessionStore 接管
+    /// Focus/title/working-directory/process-exit callbacks, taken over by SessionStore
     var onFocus: (() -> Void)? {
         get { terminalView.onFocus }
         set { terminalView.onFocus = newValue }
     }
-    /// PTY 有输出(后台线程);/ 终端响铃(后台线程)
+    /// PTY has output (background thread); / terminal bell (background thread)
     var onOutput: (() -> Void)? {
         get { terminalView.onOutput }
         set { terminalView.onOutput = newValue }
@@ -72,6 +72,9 @@ final class TerminalController: NSObject, ObservableObject, LocalProcessTerminal
     var onTitleChange: ((String) -> Void)?
     var onDirectoryChange: ((String?) -> Void)?
     var onTerminated: (() -> Void)?
+    /// OSC 133 shell-integration command boundaries (background thread): C = command started, D = command finished.
+    var onCommandStart: (() -> Void)?
+    var onCommandEnd: (() -> Void)?
 
     init(config: Config) {
         self.config = config
@@ -81,16 +84,82 @@ final class TerminalController: NSObject, ObservableObject, LocalProcessTerminal
         applyAppearance()
         terminalView.processDelegate = self
 
-        // 用用户默认 shell,以 login shell 方式启动(execName 前缀 "-"),
-        // 起始目录固定到用户主目录(否则 .app 从 / 启动,cwd 会是根目录)
+        // OSC 133 shell integration: precise command start/end (see the hooks injected in installShellSetup).
+        // The handler runs on the parser (background) thread — it may only fan out to the callbacks, which mutate plain vars.
+        terminalView.getTerminal().registerOscHandler(code: 133) { [weak self] data in
+            switch data.first {
+            case UInt8(ascii: "C"): self?.onCommandStart?()
+            case UInt8(ascii: "D"): self?.onCommandEnd?()
+            default: break
+            }
+        }
+
+        // Use the user's default shell, started as a login shell (execName prefixed with "-"),
+        // with the starting directory fixed to the user's home directory (otherwise the .app starts from /, and cwd would be the root directory)
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let shellName = (shell as NSString).lastPathComponent
+
+        // For zsh, install our shell integration (prompt name, input-color hook, OSC 133) via a ZDOTDIR wrapper so
+        // it takes effect *before the first prompt is drawn* — no startup flash of the original prompt.
+        var environment: [String]? = nil
+        if shellName == "zsh", let zdotdir = Self.prepareZDotDir() {
+            environment = Terminal.getEnvironmentVariables(termName: "xterm-256color") + ["ZDOTDIR=\(zdotdir)"]
+        }
+
         terminalView.startProcess(executable: shell,
+                                  args: [],
+                                  environment: environment,
                                   execName: "-\(shellName)",
                                   currentDirectory: NSHomeDirectory())
     }
 
-    // MARK: - 外观(字体 + 主题)
+    // MARK: - Shell integration (ZDOTDIR wrapper)
+
+    /// Write a ZDOTDIR wrapper (`~/.config/voiceghostty/shell/`) whose dotfiles first source the user's real
+    /// `~/.z*` files, then append VoiceGhostty's integration, and return its path (nil on failure).
+    /// Running inside `.zshrc` means everything is in place *before the first prompt is drawn* — no startup flash.
+    ///
+    /// Integration installed (the user's own prompt is left untouched):
+    /// - **Input highlighting** — a `line-pre-redraw` hook colors the command line you type; it re-reads the
+    ///   color file each redraw (builtin `read`, no subprocess), so a Settings color change applies live.
+    /// - **OSC 133** — `preexec`/`precmd` emit command start/end markers that drive the precise status lights.
+    private static func prepareZDotDir() -> String? {
+        AppSettings.writeInputColorFile()   // ensure the color file exists before the hook reads it
+        let dir = (NSHomeDirectory() as NSString).appendingPathComponent(".config/voiceghostty/shell")
+        let colorFile = AppSettings.inputColorFilePath
+        let fm = FileManager.default
+        do {
+            try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+
+            let zshenv = """
+            [ -f "$HOME/.zshenv" ] && source "$HOME/.zshenv"
+            ZDOTDIR='\(dir)'
+            """
+            let zprofile = #"[ -f "$HOME/.zprofile" ] && source "$HOME/.zprofile""#
+            let zlogin   = #"[ -f "$HOME/.zlogin" ] && source "$HOME/.zlogin""#
+            let zshrc = """
+            [ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc"
+            # --- VoiceGhostty shell integration (auto-generated; regenerated each launch) ---
+            export COLORTERM=truecolor
+            autoload -Uz add-zsh-hook add-zle-hook-widget
+            _vg_ic(){ local c; IFS= read -r c < '\(colorFile)' 2>/dev/null; region_highlight=("0 ${#BUFFER} fg=${c:-#5CC8FF}") }
+            add-zle-hook-widget line-pre-redraw _vg_ic
+            _vg_pe(){ print -n '\\e]133;C\\e\\\\' }
+            _vg_pc(){ print -n '\\e]133;D\\e\\\\' }
+            add-zsh-hook preexec _vg_pe
+            add-zsh-hook precmd _vg_pc
+            """
+            try zshenv.write(toFile: dir + "/.zshenv", atomically: true, encoding: .utf8)
+            try zprofile.write(toFile: dir + "/.zprofile", atomically: true, encoding: .utf8)
+            try zlogin.write(toFile: dir + "/.zlogin", atomically: true, encoding: .utf8)
+            try zshrc.write(toFile: dir + "/.zshrc", atomically: true, encoding: .utf8)
+            return dir
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: - Appearance (font + theme)
 
     private func applyAppearance() {
         terminalView.font = config.font
@@ -103,31 +172,31 @@ final class TerminalController: NSObject, ObservableObject, LocalProcessTerminal
         }
     }
 
-    /// 设置字号(保留字体家族),供 ⌘+/⌘- 调用
+    /// Set the font size (keeping the font family), called by ⌘+/⌘-
     func setFontSize(_ size: CGFloat) {
         config.fontSize = size
         terminalView.font = config.font
     }
 
-    /// 切换主题(保留字号)
+    /// Switch theme (keeping the font size)
     func setTheme(_ themeName: String) {
         config.themeName = themeName
         applyAppearance()
     }
 
-    // MARK: - 写入(唯一执行入口,均由用户确认后调用)
+    // MARK: - Writing (the only execution entry points, all called after user confirmation)
 
-    /// 把一条命令写入终端并回车执行
+    /// Write a command into the terminal and press Enter to execute
     func run(_ command: String) {
         terminalView.send(txt: command + "\n")
     }
 
-    /// 只把文字填进终端,不回车
+    /// Only type the text into the terminal, without pressing Enter
     func type(_ text: String) {
         terminalView.send(txt: text)
     }
 
-    /// 清屏:发送 Ctrl-L(form feed),shell 会重绘并清屏
+    /// Clear the screen: send Ctrl-L (form feed), and the shell redraws and clears the screen
     func clearScreen() {
         terminalView.send(txt: "\u{0C}")
     }

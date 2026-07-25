@@ -1,47 +1,47 @@
 import Foundation
 
-/// 本地离线小模型(Ollama,http://127.0.0.1:11434)。
-/// 只做一件事:**听写矫正** —— 修正语音识别的同音字/错别字,删掉语气词。
-/// 短进短出,qwen3:1.7b 足够;NL2Command(自然语言→命令)走 Claude / Apple 端侧,不经过这里。
+/// Local offline small model (Ollama, http://127.0.0.1:11434).
+/// It does exactly one thing: **dictation correction** — fixing speech-recognition homophones/typos and dropping filler words.
+/// Short in, short out; qwen3:1.7b is plenty. NL2Command (natural language → command) goes through Claude / Apple on-device and does not pass through here.
 enum OllamaClient {
     static let defaultModel = "qwen3:1.7b"
     static let defaultBaseURL = "http://127.0.0.1:11434"
 
-    /// Ollama 服务没在跑(连不上)。调用方据此静默回落(矫正失败就用原文)
+    /// The Ollama service isn't running (can't connect). The caller uses this to fall back silently (on correction failure it uses the original text)
     struct Unavailable: Error {}
 
-    /// ★ 必须绕过系统代理直连本机。
-    /// URLSession 默认遵循系统代理(Clash/Surge 等),连 127.0.0.1 的请求也会被代理转发,
-    /// 实测经代理的请求会导致模型异常长输出直至超时;绕过后恢复正常。
-    /// 另注:qwen3 的 think 开关在 Ollama chatml 模板下不可靠,真正压住思考输出的是
-    /// format(JSON Schema grammar)约束 —— 所以 format 必须保留。
+    /// ★ Must bypass the system proxy and connect to the local machine directly.
+    /// URLSession follows the system proxy (Clash/Surge, etc.) by default, so even requests to 127.0.0.1 get forwarded through the proxy;
+    /// in practice, requests routed through the proxy cause the model to emit abnormally long output until timeout; bypassing it restores normal behavior.
+    /// Also note: qwen3's think toggle is unreliable under Ollama's chatml template; what actually suppresses the thinking output is the
+    /// format (JSON Schema grammar) constraint — so format must be kept.
     private static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
-        config.connectionProxyDictionary = [:]   // 空字典 = 不用任何代理
+        config.connectionProxyDictionary = [:]   // empty dictionary = use no proxy
         return URLSession(configuration: config)
     }()
 
-    /// few-shot 示例是刚需:1.7B 级小模型只给规则会乱删实义词,给示例后行为稳定。
-    /// 实测边界:去语气词/去结巴可靠;同音错别字纠正小模型做不稳,属尽力而为。
+    /// Few-shot examples are essential: a 1.7B-class small model, given only rules, will delete content words at random; with examples its behavior is stable.
+    /// Observed limits: removing filler words / de-stuttering is reliable; correcting homophone typos is not reliable for a small model, so it's best-effort.
     private static let instructions = """
-    你是语音听写的文字整理器,负责清理语音识别的输出。规则:
-    1. 修正明显的同音字/错别字
-    2. 删除语气词(嗯、呃、啊、哦、那个、就是说等口头禅)和重复结巴
-    3. 其余一律原样保留:不改写句式、不增删实义词、不翻译、不回答问题。英文、命令、路径、数字照抄。
+    You are a text tidier for voice dictation, responsible for cleaning up speech-recognition output. Rules:
+    1. Fix obvious homophones/typos
+    2. Remove filler words (um, uh, ah, oh, like, you know, and similar verbal tics) and repeated stutters
+    3. Keep everything else exactly as is: don't rewrite the sentence structure, don't add or remove content words, don't translate, don't answer questions. Copy English, commands, paths, and numbers verbatim.
 
-    示例:
-    输入:嗯那个帮我重启一下服务
-    输出:帮我重启一下服务
-    输入:把把这个这个文件删掉吧
-    输出:把这个文件删掉吧
-    输入:查一下磁盘空间还剩多少
-    输出:查一下磁盘空间还剩多少
-    输入:呃看看当前的段口占用
-    输出:看看当前的端口占用
+    Examples:
+    Input: um so restart the service for me
+    Output: restart the service for me
+    Input: delete delete this this file
+    Output: delete this file
+    Input: check how much disk space is left
+    Output: check how much disk space is left
+    Input: uh show the currant port usage
+    Output: show the current port usage
     """
 
-    /// 矫正一句听写文本。模型输出异常时返回原文 —— 矫正只能锦上添花,绝不能弄丢用户的话。
-    /// 服务不可用时抛 Unavailable,由调用方回落原文。
+    /// Correct one dictated sentence. When the model output is abnormal it returns the original text — correction can only be a nice-to-have and must never lose the user's words.
+    /// When the service is unavailable it throws Unavailable, and the caller falls back to the original text.
     static func correct(_ text: String,
                         model: String,
                         baseURL: String) async throws -> String {
@@ -49,16 +49,16 @@ enum OllamaClient {
         return sanitize(raw, original: text) ?? text
     }
 
-    /// 输出清洗 + 安全阀。
-    /// - 剥掉 /no_think、/think:Ollama 的 qwen3 chatml 模板注入的思考软开关会被模型回显
-    /// - 长度突变(相对原文缩水/膨胀过猛)判定为模型跑偏(乱删实义词/加戏),回落原文
+    /// Output cleanup + safety valve.
+    /// - Strip /no_think and /think: the soft thinking toggles injected by Ollama's qwen3 chatml template get echoed back by the model
+    /// - A sudden length change (shrinking/ballooning too much relative to the original) is treated as the model going off the rails (deleting content words at random / adding fluff), so fall back to the original text
     private static func sanitize(_ raw: String, original: String) -> String? {
         let cleaned = raw
             .replacingOccurrences(of: "/no_think", with: "")
             .replacingOccurrences(of: "/think", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return nil }
-        // 极短输入(如"嗯 ls")合法压缩比例大,只防膨胀
+        // Very short input (like "um ls") legitimately compresses a lot, so only guard against ballooning
         if original.count > 6 {
             let ratio = Double(cleaned.count) / Double(original.count)
             guard ratio >= 0.5 else { return nil }
@@ -73,7 +73,7 @@ enum OllamaClient {
                              think: Bool?) async throws -> String {
         guard let url = URL(string: "\(baseURL)/api/chat") else { throw Unavailable() }
         var request = URLRequest(url: url)
-        // 矫正必须无感:模型已预热时一句话 <1 秒;超过 15 秒宁可用原文
+        // Correction must be imperceptible: with the model warmed up a single sentence takes <1 second; beyond 15 seconds it's better to use the original text
         request.timeoutInterval = 15
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -81,13 +81,13 @@ enum OllamaClient {
         var body: [String: Any] = [
             "model": model,
             "stream": false,
-            // 模型保温 30 分钟:Ollama 默认 5 分钟就卸载,冷载入十几秒体感像卡死
+            // Keep the model warm for 30 minutes: Ollama unloads after 5 minutes by default, and a cold load of a dozen-plus seconds feels like a freeze
             "keep_alive": "30m",
             "messages": [
                 ["role": "system", "content": instructions],
                 ["role": "user", "content": text],
             ],
-            // structured outputs:保证返回就是纯文本字段,没有解释废话
+            // structured outputs: guarantees the response is exactly the plain-text field, with no explanatory fluff
             "format": [
                 "type": "object",
                 "properties": ["text": ["type": "string"]],
@@ -102,12 +102,12 @@ enum OllamaClient {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
-            throw Unavailable()   // 连不上/超时,统一让调用方回落原文
+            throw Unavailable()   // can't connect / timed out; uniformly let the caller fall back to the original text
         }
 
         guard let http = response as? HTTPURLResponse else { throw Unavailable() }
         guard http.statusCode == 200 else {
-            // 换了不支持思考模式的模型时,去掉 think 参数重试一次
+            // If switched to a model that doesn't support thinking mode, drop the think parameter and retry once
             let detail = (try? JSONDecoder().decode(ErrorResponse.self, from: data))?.error
             if think != nil, let detail, detail.contains("does not support thinking") {
                 return try await send(text, model: model, baseURL: baseURL, think: nil)
@@ -119,13 +119,13 @@ enum OllamaClient {
               let jsonData = reply.message.content.data(using: .utf8),
               let parsed = try? JSONDecoder().decode(Corrected.self, from: jsonData),
               !parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw Unavailable()   // 解析不出来也回落原文
+            throw Unavailable()   // if it can't be parsed, also fall back to the original text
         }
         return parsed.text
     }
 
-    /// 预热:让 Ollama 把模型载入内存(空 prompt 的 /api/generate 只触发加载,不生成)。
-    /// app 启动时后台调用,把冷载入挪到用户开口之前;失败静默忽略。
+    /// Warm-up: get Ollama to load the model into memory (an /api/generate with an empty prompt only triggers loading, no generation).
+    /// Called in the background at app startup to move the cold load to before the user starts speaking; failures are silently ignored.
     static func warmUp(model: String, baseURL: String) async {
         guard let url = URL(string: "\(baseURL)/api/generate") else { return }
         var request = URLRequest(url: url)
@@ -138,7 +138,7 @@ enum OllamaClient {
         _ = try? await session.data(for: request)
     }
 
-    // MARK: - 响应模型(只解析用得到的字段)
+    // MARK: - Response models (only decode the fields we use)
 
     private struct ChatResponse: Decodable {
         struct Message: Decodable { let content: String }

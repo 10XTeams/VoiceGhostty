@@ -1,15 +1,15 @@
 import Foundation
 
-/// Claude API 极简客户端(Swift 无官方 SDK,直连 POST /v1/messages)。
-/// 只做一件事:自然语言 → {command, explanation} JSON。
-/// 用 structured outputs(output_config.format json_schema)让 API 层保证输出结构,
-/// 无需在客户端做"抠 JSON"容错。
+/// Minimal Claude API client (Swift has no official SDK, so we POST directly to /v1/messages).
+/// It does exactly one thing: natural language → {command, explanation} JSON.
+/// Structured outputs (output_config.format json_schema) let the API layer guarantee the output
+/// structure, so the client doesn't need any "scrape the JSON out" fallback handling.
 enum ClaudeClient {
     static let defaultModel = "claude-opus-4-8"
 
     /// - Parameters:
-    ///   - apiKey: Anthropic API Key(来自配置文件 llm-api-key 或 ANTHROPIC_API_KEY 环境变量)
-    ///   - model: 模型 ID,配置文件 llm-model 可覆盖
+    ///   - apiKey: Anthropic API Key (from the llm-api-key config file entry or the ANTHROPIC_API_KEY environment variable)
+    ///   - model: Model ID; can be overridden by the llm-model config file entry
     static func translate(_ naturalLanguage: String,
                           instructions: String,
                           apiKey: String,
@@ -21,7 +21,7 @@ enum ClaudeClient {
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
 
-        // 语音场景要快:effort=low 降低延迟;json_schema 保证输出就是目标 JSON
+        // Voice use cases need speed: effort=low lowers latency; json_schema guarantees the output is exactly the target JSON
         let body: [String: Any] = [
             "model": model,
             "max_tokens": 1024,
@@ -34,9 +34,9 @@ enum ClaudeClient {
                         "type": "object",
                         "properties": [
                             "command": ["type": "string",
-                                        "description": "一条可直接执行的 shell 命令,只有命令本身;无法安全完成时为空字符串"],
+                                        "description": "A single directly executable shell command, the command only; an empty string when it cannot be done safely"],
                             "explanation": ["type": "string",
-                                            "description": "一句中文说明,危险操作要提示风险"],
+                                            "description": "A one-sentence explanation in English, flagging the risk for dangerous operations"],
                         ],
                         "required": ["command", "explanation"],
                         "additionalProperties": false,
@@ -51,11 +51,11 @@ enum ClaudeClient {
         do {
             (data, response) = try await URLSession.shared.data(for: request)
         } catch {
-            throw NL2Command.NL2CommandError.message("网络请求失败:\(error.localizedDescription)")
+            throw NL2Command.NL2CommandError.message("Network request failed: \(error.localizedDescription)")
         }
 
         guard let http = response as? HTTPURLResponse else {
-            throw NL2Command.NL2CommandError.message("Claude API 响应异常")
+            throw NL2Command.NL2CommandError.message("Unexpected Claude API response")
         }
         guard http.statusCode == 200 else {
             throw NL2Command.NL2CommandError.message(errorText(statusCode: http.statusCode, data: data))
@@ -63,34 +63,34 @@ enum ClaudeClient {
 
         let message = try JSONDecoder().decode(MessageResponse.self, from: data)
 
-        // 安全分类器可能拒答(HTTP 200 + stop_reason=refusal),此时 content 可能为空
+        // The safety classifier may refuse (HTTP 200 + stop_reason=refusal), in which case content may be empty
         if message.stopReason == "refusal" {
-            throw NL2Command.NL2CommandError.message("该请求被 Claude 安全策略拒绝,换个说法试试")
+            throw NL2Command.NL2CommandError.message("This request was refused by Claude's safety policy; try rephrasing it")
         }
         guard let text = message.content.first(where: { $0.type == "text" })?.text,
               let jsonData = text.data(using: .utf8),
               let parsed = try? JSONDecoder().decode(RawSuggestion.self, from: jsonData) else {
-            throw NL2Command.NL2CommandError.message("没能生成命令,换个说法试试")
+            throw NL2Command.NL2CommandError.message("Couldn't generate a command; try rephrasing it")
         }
         return NL2Command.Translation(
             command: parsed.command.trimmingCharacters(in: .whitespacesAndNewlines),
             explanation: parsed.explanation)
     }
 
-    /// 把 HTTP 错误翻译成用户能看懂的一句话
+    /// Translate an HTTP error into a single sentence the user can understand
     private static func errorText(statusCode: Int, data: Data) -> String {
-        // API 错误体:{"type":"error","error":{"type":"...","message":"..."}}
+        // API error body: {"type":"error","error":{"type":"...","message":"..."}}
         let apiMessage = (try? JSONDecoder().decode(ErrorResponse.self, from: data))?.error.message
         switch statusCode {
-        case 401: return "API Key 无效,请检查 llm-api-key 配置"
-        case 403: return "API Key 无权限:\(apiMessage ?? "permission_error")"
-        case 429: return "请求太频繁(限流),稍后再试"
-        case 500...: return "Claude 服务暂时不可用,稍后再试"
-        default:  return "Claude API 错误(\(statusCode)):\(apiMessage ?? "未知错误")"
+        case 401: return "Invalid API Key; please check the llm-api-key config"
+        case 403: return "API Key lacks permission: \(apiMessage ?? "permission_error")"
+        case 429: return "Too many requests (rate limited); please try again later"
+        case 500...: return "Claude service is temporarily unavailable; please try again later"
+        default:  return "Claude API error (\(statusCode)): \(apiMessage ?? "unknown error")"
         }
     }
 
-    // MARK: - 响应模型(只解析用得到的字段)
+    // MARK: - Response models (only decode the fields we use)
 
     private struct MessageResponse: Decodable {
         let content: [ContentBlock]

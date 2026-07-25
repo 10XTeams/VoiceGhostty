@@ -1,13 +1,13 @@
 import AppKit
 
-/// 按住空格说话(push-to-talk):
-/// - 快速点按空格(< 阈值)→ 正常输入空格(keyUp 时补发)
-/// - 按住空格(≥ 阈值)→ 开始录音,松开即停止
+/// Push-to-talk (hold space to speak):
+/// - Quick tap of space (< threshold) → normal space input (re-sent on keyUp)
+/// - Hold space (≥ threshold) → start recording, stop on release
 final class PushToTalkMonitor {
     var onHoldStart: (() -> Void)?
     var onHoldEnd: (() -> Void)?
 
-    /// 长按判定阈值:低于它算普通空格输入
+    /// Hold-detection threshold: below it counts as a normal space input
     private let holdThreshold: TimeInterval = 0.25
     private let spaceKeyCode: UInt16 = 49
 
@@ -35,14 +35,14 @@ final class PushToTalkMonitor {
     }
 
     private func handle(_ event: NSEvent) -> NSEvent? {
-        // 只拦截无修饰键的空格;补发时(passthrough)直接放行
+        // Only intercept unmodified space; pass through directly when re-sending (passthrough)
         guard event.keyCode == spaceKeyCode,
               event.modifierFlags.intersection([.command, .option, .control]).isEmpty,
               !passthrough else { return event }
 
         switch event.type {
         case .keyDown:
-            if isHolding || event.isARepeat { return nil } // 按住期间吞掉系统按键重复
+            if isHolding || event.isARepeat { return nil } // Swallow system key repeats while holding
             pendingKeyDown = event
             let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
@@ -52,7 +52,7 @@ final class PushToTalkMonitor {
             }
             holdWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + holdThreshold, execute: work)
-            return nil // 先吞掉;快速点按会在 keyUp 时补发
+            return nil // Swallow for now; a quick tap will be re-sent on keyUp
 
         case .keyUp:
             holdWork?.cancel()
@@ -62,7 +62,7 @@ final class PushToTalkMonitor {
                 onHoldEnd?()
                 return nil
             }
-            // 快速点按:补发原始空格 keyDown + keyUp,行为与正常打字一致
+            // Quick tap: re-send the original space keyDown + keyUp, behaving like normal typing
             if let down = pendingKeyDown {
                 pendingKeyDown = nil
                 passthrough = true

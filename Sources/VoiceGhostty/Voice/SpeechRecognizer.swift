@@ -2,40 +2,50 @@ import AVFoundation
 import Speech
 import SwiftUI
 
-/// 麦克风采集 (AVAudioEngine) + 中英识别。
+/// Microphone capture (AVAudioEngine) + dual-locale (Chinese/English) recognition.
 ///
-/// 关键设计:**任何时刻只跑一个识别器**,避免两个端侧识别器并发互相抢占(会随机只有一个出结果)。
-/// - 录音时:只跑中文(zh-CN)实时识别(用户以中文为主),同时把音频录进 `captured`。
-/// - 停止后:中文结果含汉字 → 用中文;否则拿录好的整段音频**单独再跑一次英文(en-US)**。
+/// Key design: **only one recognizer runs at any time**, to avoid two on-device recognizers running concurrently and preempting each other (which randomly leaves only one producing results).
+/// - The *primary* locale comes from `AppSettings.defaultLanguage` (default zh-CN); the other locale is the fallback.
+/// - While recording: run only the primary locale's live recognition, while also recording the audio into `captured`.
+/// - After stopping: if the primary result looks good (Chinese-primary → contains Han characters; English-primary → non-empty) use it; otherwise take the full recorded audio and **run the fallback locale once separately**.
 final class SpeechRecognizer: ObservableObject {
     @Published var isRecording = false
-    /// 实时(部分)识别结果,录音过程中持续更新
+    /// Live (partial) recognition result, continuously updated during recording
     @Published var liveTranscript = ""
     @Published var errorMessage: String?
 
-    /// 最终识别结果回调(停止录音后触发一次)
+    /// Final recognition result callback (fired once after recording stops)
     var onFinalResult: ((String) -> Void)?
 
     private let audioEngine = AVAudioEngine()
     private let zhRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN"))
     private let enRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
 
-    // 主(中文)实时识别
+    /// Primary recognition locale, refreshed from `AppSettings` at the start of each recording.
+    private var primaryLocale = "zh-CN"
+    private var primaryRecognizer: SFSpeechRecognizer? {
+        primaryLocale == "en-US" ? enRecognizer : zhRecognizer
+    }
+    private var fallbackRecognizer: SFSpeechRecognizer? {
+        primaryLocale == "en-US" ? zhRecognizer : enRecognizer
+    }
+
+    // Primary live recognition
     private var liveRequest: SFSpeechAudioBufferRecognitionRequest?
     private var liveTask: SFSpeechRecognitionTask?
     private var liveText = ""
-    // 英文兜底:录音期间捕获的整段音频
+    // Fallback: the full audio captured during recording
     private var captured: [AVAudioPCMBuffer] = []
-    private var enTask: SFSpeechRecognitionTask?
+    private var fallbackTask: SFSpeechRecognitionTask?
 
-    // VAD:检测到开口才建识别任务、才开始录音,避免开头静默触发 1110
+    // VAD: only build the recognition task and start recording once speech is detected, to avoid leading silence triggering error 1110
     private var speechStarted = false
     private var preRoll: [AVAudioPCMBuffer] = []
     private let preRollCount = 6
     private let rmsThreshold: Float = 0.01
 
     private var hasDelivered = false
-    /// 代际计数:stop() 时 +1,取消权限流程中尚未真正启动的录音
+    /// Generation counter: +1 on stop(), cancelling a recording not yet actually started during the permission flow
     private var generation = 0
     private var userStopped = false
     private var finishTimeout: DispatchWorkItem?
@@ -44,13 +54,13 @@ final class SpeechRecognizer: ObservableObject {
         isRecording ? stop() : startRecording()
     }
 
-    /// 开始录音(含权限申请);已在录音则忽略
+    /// Start recording (including permission requests); ignored if already recording
     func startRecording() {
         guard !isRecording else { return }
         requestPermissionsAndStart()
     }
 
-    // MARK: - 权限
+    // MARK: - Permissions
 
     private func requestPermissionsAndStart() {
         errorMessage = nil
@@ -59,14 +69,16 @@ final class SpeechRecognizer: ObservableObject {
             DispatchQueue.main.async {
                 guard let self, self.generation == gen else { return }
                 guard status == .authorized else {
-                    self.errorMessage = "语音识别权限被拒绝(系统设置 → 隐私与安全性 → 语音识别)"
+                    self.errorMessage = Loc.shared("Speech recognition permission denied (System Settings → Privacy & Security → Speech Recognition)",
+                                                   "语音识别权限被拒绝(系统设置 → 隐私与安全性 → 语音识别)")
                     return
                 }
                 AVCaptureDevice.requestAccess(for: .audio) { granted in
                     DispatchQueue.main.async {
                         guard self.generation == gen else { return }
                         guard granted else {
-                            self.errorMessage = "麦克风权限被拒绝(系统设置 → 隐私与安全性 → 麦克风)"
+                            self.errorMessage = Loc.shared("Microphone permission denied (System Settings → Privacy & Security → Microphone)",
+                                                           "麦克风权限被拒绝(系统设置 → 隐私与安全性 → 麦克风)")
                             return
                         }
                         self.start()
@@ -76,13 +88,15 @@ final class SpeechRecognizer: ObservableObject {
         }
     }
 
-    // MARK: - 录音
+    // MARK: - Recording
 
     private func start() {
         guard (zhRecognizer?.isAvailable ?? false) || (enRecognizer?.isAvailable ?? false) else {
-            errorMessage = "语音识别不可用(zh-CN / en-US 均不可用,检查系统听写设置)"
+            errorMessage = Loc.shared("Speech recognition unavailable (neither zh-CN nor en-US available; check system dictation settings)",
+                                      "语音识别不可用(zh-CN 与 en-US 均不可用;请检查系统听写设置)")
             return
         }
+        primaryLocale = AppSettings.defaultLanguage
         liveText = ""
         liveTranscript = ""
         captured = []
@@ -92,7 +106,7 @@ final class SpeechRecognizer: ObservableObject {
         userStopped = false
         liveRequest = nil
         liveTask = nil
-        enTask = nil
+        fallbackTask = nil
 
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
@@ -101,19 +115,19 @@ final class SpeechRecognizer: ObservableObject {
             guard let self else { return }
 
             if self.speechStarted {
-                // 每处独立副本:同一 buffer 对象被 append 后可能失效
+                // Independent copy each place: the same buffer object may become invalid after being appended
                 self.liveRequest?.append(Self.copy(buffer))
                 self.captured.append(Self.copy(buffer))
                 return
             }
 
-            // 尚未开口:滚动保留前置缓冲
+            // Not speaking yet: keep a rolling pre-roll buffer
             self.preRoll.append(buffer)
             if self.preRoll.count > self.preRollCount { self.preRoll.removeFirst() }
 
             if Self.rms(buffer) > self.rmsThreshold {
                 self.speechStarted = true
-                self.startLiveChinese()
+                self.startLive()
                 for b in self.preRoll {
                     self.liveRequest?.append(Self.copy(b))
                     self.captured.append(Self.copy(b))
@@ -126,18 +140,18 @@ final class SpeechRecognizer: ObservableObject {
             try audioEngine.start()
             isRecording = true
         } catch {
-            errorMessage = "音频引擎启动失败: \(error.localizedDescription)"
+            errorMessage = Loc.shared("Audio engine failed to start: ", "音频引擎启动失败:") + error.localizedDescription
             cleanup()
         }
     }
 
-    /// 开口瞬间创建中文实时识别任务
-    private func startLiveChinese() {
-        guard let zh = zhRecognizer, zh.isAvailable else { return }
+    /// Create the primary-locale live recognition task the moment speech starts
+    private func startLive() {
+        guard let primary = primaryRecognizer, primary.isAvailable else { return }
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         liveRequest = req
-        liveTask = zh.recognitionTask(with: req) { [weak self] result, error in
+        liveTask = primary.recognitionTask(with: req) { [weak self] result, error in
             DispatchQueue.main.async {
                 guard let self else { return }
                 if let result {
@@ -145,7 +159,7 @@ final class SpeechRecognizer: ObservableObject {
                     self.liveTranscript = self.liveText
                     if result.isFinal { self.finish() }
                 }
-                if error != nil { self.finish() }   // 中文识别结束/失败 → 进裁决(可能转英文兜底)
+                if error != nil { self.finish() }   // Primary recognition ended/failed → go to arbitration (may switch to the fallback locale)
             }
         }
     }
@@ -158,39 +172,51 @@ final class SpeechRecognizer: ObservableObject {
         audioEngine.inputNode.removeTap(onBus: 0)
         isRecording = false
 
-        // 兜底:2 秒内中文没出最终结果就强制裁决
+        // Fallback: force arbitration if Chinese produces no final result within 2 seconds
         guard !hasDelivered else { return }
         let work = DispatchWorkItem { [weak self] in self?.finish() }
         finishTimeout = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: work)
     }
 
-    // MARK: - 裁决:中文含汉字直接用,否则跑英文兜底
+    // MARK: - Arbitration: use the primary result if it looks good, otherwise run the fallback locale
 
     private func finish() {
         guard !hasDelivered else { return }
-        if liveText.containsCJK {
+        if primaryResultIsGood {
             deliver(liveText)
         } else {
-            runEnglishFallback()
+            runFallback()
         }
     }
 
-    /// 在录好的整段音频上单独跑一次英文识别(此刻中文任务已结束,无并发抢占)
-    private func runEnglishFallback() {
-        guard let en = enRecognizer, en.isAvailable, !captured.isEmpty else {
-            deliver(liveText)   // 没英文识别器或没录到音频 → 用中文结果(可能为空)
+    /// Whether the primary live result is trustworthy.
+    /// - Chinese-primary: the audio is Chinese only if the transcript contains Han characters (the zh recognizer
+    ///   otherwise transliterates English into wrong Han, so fall back to English).
+    /// - English-primary: the en recognizer never emits Han, so any non-empty Latin transcript is trusted.
+    private var primaryResultIsGood: Bool {
+        if primaryLocale == "en-US" {
+            return !liveText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        } else {
+            return liveText.containsCJK
+        }
+    }
+
+    /// Run the fallback locale once on the full recorded audio (by now the primary task has ended, so no concurrent preemption)
+    private func runFallback() {
+        guard let fallback = fallbackRecognizer, fallback.isAvailable, !captured.isEmpty else {
+            deliver(liveText)   // No fallback recognizer or no audio recorded → use the primary result (may be empty)
             return
         }
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = false
         let buffers = captured
-        enTask = en.recognitionTask(with: req) { [weak self] result, error in
+        fallbackTask = fallback.recognitionTask(with: req) { [weak self] result, error in
             DispatchQueue.main.async {
                 guard let self else { return }
                 if let result, result.isFinal {
-                    let enText = result.bestTranscription.formattedString
-                    self.deliver(enText.isEmpty ? self.liveText : enText)
+                    let fallbackText = result.bestTranscription.formattedString
+                    self.deliver(fallbackText.isEmpty ? self.liveText : fallbackText)
                 } else if error != nil {
                     self.deliver(self.liveText)
                 }
@@ -218,15 +244,15 @@ final class SpeechRecognizer: ObservableObject {
 
     private func cleanup() {
         liveTask?.cancel(); liveTask = nil
-        enTask?.cancel(); enTask = nil
+        fallbackTask?.cancel(); fallbackTask = nil
         liveRequest = nil
         captured = []
         preRoll = []
     }
 
-    // MARK: - 音频工具
+    // MARK: - Audio utilities
 
-    /// 均方根音量(判断是否有人声)
+    /// Root-mean-square volume (to detect whether there is speech)
     private static func rms(_ buffer: AVAudioPCMBuffer) -> Float {
         guard let ch = buffer.floatChannelData, buffer.frameLength > 0 else { return 0 }
         let n = Int(buffer.frameLength)
@@ -235,7 +261,7 @@ final class SpeechRecognizer: ObservableObject {
         return (sum / Float(n)).squareRoot()
     }
 
-    /// 深拷贝一帧音频
+    /// Deep-copy a single audio frame
     private static func copy(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer {
         let out = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: buffer.frameCapacity)!
         out.frameLength = buffer.frameLength
@@ -249,7 +275,7 @@ final class SpeechRecognizer: ObservableObject {
 }
 
 private extension String {
-    /// 是否包含中日韩统一表意文字(用于判定"说的是中文")
+    /// Whether it contains CJK Unified Ideographs (used to decide "the speech is Chinese")
     var containsCJK: Bool {
         unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) }
     }

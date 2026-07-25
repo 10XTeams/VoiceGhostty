@@ -1,7 +1,12 @@
 import SwiftUI
 
-/// 快捷键说明面板(工具栏「快捷键」按钮弹出)。
+/// Shortcuts reference list, embedded in the Settings panel's "Shortcuts" tab.
 struct ShortcutsHelpView: View {
+    /// When embedded in the Settings panel the tab already labels this section, so the title is hidden.
+    var showTitle: Bool = true
+
+    @ObservedObject private var loc = Loc.shared
+
     private struct Item: Identifiable {
         let id = UUID()
         let keys: String
@@ -13,42 +18,49 @@ struct ShortcutsHelpView: View {
         let items: [Item]
     }
 
-    private let sections: [Section] = [
-        Section(title: "语音", items: [
-            Item(keys: "按住空格", desc: "说话(松开即停;快速点按仍输入空格)"),
-            Item(keys: "⌘⇧M", desc: "开始/停止录音"),
-            Item(keys: "回车", desc: "执行待确认区命令"),
-        ]),
-        Section(title: "标签", items: [
-            Item(keys: "⌘T", desc: "新建标签"),
-            Item(keys: "⌘W", desc: "关闭标签/分屏"),
-            Item(keys: "⌘⇧] / ⌘⇧[", desc: "下一个 / 上一个标签"),
-            Item(keys: "⌘1…⌘8", desc: "直达第 N 个标签"),
-            Item(keys: "⌘9", desc: "最后一个标签"),
-        ]),
-        Section(title: "分屏", items: [
-            Item(keys: "⌘D", desc: "向右分屏"),
-            Item(keys: "⌘⇧D", desc: "向下分屏"),
-            Item(keys: "⌘⌥←↑↓→", desc: "按方向切换分屏焦点"),
-            Item(keys: "点击某格", desc: "语音/执行路由到该格"),
-        ]),
-        Section(title: "显示", items: [
-            Item(keys: "⌘+ / ⌘=", desc: "放大字号"),
-            Item(keys: "⌘-", desc: "缩小字号"),
-            Item(keys: "⌘0", desc: "恢复默认字号"),
-            Item(keys: "⌘K", desc: "清屏"),
-            Item(keys: "⌘F", desc: "搜索滚动区(回车下一个,⇧回车上一个)"),
-        ]),
-        Section(title: "编辑", items: [
-            Item(keys: "⌘C / ⌘V", desc: "复制 / 粘贴"),
-            Item(keys: "⌘A", desc: "全选"),
-        ]),
-    ]
+    private var sections: [Section] {
+        [
+            Section(title: loc("Voice", "语音"), items: [
+                Item(keys: "Hold Space", desc: loc("Talk (release to stop; a quick tap still types a space)",
+                                                   "按住说话(松开停止;轻按一下仍输入空格)")),
+                Item(keys: "⌘⇧M", desc: loc("Start / stop recording", "开始 / 停止录音")),
+                Item(keys: "Return", desc: loc("Run the pending command", "执行待确认的命令")),
+            ]),
+            Section(title: loc("Tabs", "标签页"), items: [
+                Item(keys: "⌘T", desc: loc("New tab", "新建标签页")),
+                Item(keys: "⌘W", desc: loc("Close tab / split", "关闭标签页 / 分屏")),
+                Item(keys: "⌘⇧] / ⌘⇧[", desc: loc("Next / previous tab", "下一个 / 上一个标签页")),
+                Item(keys: "⌘1…⌘8", desc: loc("Jump to the Nth tab", "跳到第 N 个标签页")),
+                Item(keys: "⌘9", desc: loc("Last tab", "最后一个标签页")),
+            ]),
+            Section(title: loc("Splits", "分屏"), items: [
+                Item(keys: "⌘D", desc: loc("Split right", "向右分屏")),
+                Item(keys: "⌘⇧D", desc: loc("Split down", "向下分屏")),
+                Item(keys: "⌘⌥←↑↓→", desc: loc("Move split focus by direction", "按方向切换分屏焦点")),
+                Item(keys: loc("Click a pane", "点击某个分屏"), desc: loc("Route voice / execution to that pane",
+                                                                        "把语音 / 执行定向到该分屏")),
+            ]),
+            Section(title: loc("View", "视图"), items: [
+                Item(keys: "⌘+ / ⌘=", desc: loc("Increase font size", "增大字号")),
+                Item(keys: "⌘-", desc: loc("Decrease font size", "减小字号")),
+                Item(keys: "⌘0", desc: loc("Reset font size", "重置字号")),
+                Item(keys: "⌘K", desc: loc("Clear screen", "清屏")),
+                Item(keys: "⌘F", desc: loc("Search scrollback (Return next, ⇧Return previous)",
+                                           "搜索回滚内容(Return 下一个,⇧Return 上一个)")),
+            ]),
+            Section(title: loc("Edit", "编辑"), items: [
+                Item(keys: "⌘C / ⌘V", desc: loc("Copy / paste", "复制 / 粘贴")),
+                Item(keys: "⌘A", desc: loc("Select all", "全选")),
+            ]),
+        ]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("快捷键")
-                .font(.headline)
+            if showTitle {
+                Text(loc("Shortcuts", "快捷键"))
+                    .font(.headline)
+            }
 
             ForEach(sections) { section in
                 VStack(alignment: .leading, spacing: 6) {
@@ -70,7 +82,6 @@ struct ShortcutsHelpView: View {
                 }
             }
         }
-        .padding(16)
-        .frame(width: 340, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

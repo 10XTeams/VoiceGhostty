@@ -3,42 +3,55 @@ import AppKit
 
 struct ContentView: View {
     @EnvironmentObject private var store: SessionStore
+    @ObservedObject private var loc = Loc.shared
     @StateObject private var speech = SpeechRecognizer()
     @State private var mode: VoiceMode = .dictation
     @State private var statusText = ""
     @State private var searchText = ""
     @State private var searchSummary = ""
-    @State private var showShortcuts = false
+    @State private var showSettings = false
     @State private var showSkillPanel = false
-    /// 常用项目目录(一键 cd 并启动 Claude),持久化在 UserDefaults
+    @State private var showClaudeMenu = false
+    /// Frequently used project directories (one-tap cd and launch Claude), persisted in UserDefaults
     @State private var claudeDirs: [String] =
         UserDefaults.standard.stringArray(forKey: "claude-dirs") ?? []
     @FocusState private var searchFocused: Bool
-    /// 按住空格说话的键盘监听(长按 ≥0.25s 录音,快速点按仍输入空格)
+    /// Push-to-talk keyboard monitor (hold ≥0.25s to record; a quick tap still types a space)
     private let pushToTalk = PushToTalkMonitor()
 
     var body: some View {
         VStack(spacing: 0) {
-            topBar               // 标签栏 + 语音控件,同一行
+            topBar               // Tab bar + voice controls on the same row
             Divider()
             terminalArea
             if store.searchVisible {
                 Divider()
                 searchBar
             }
-            // 状态/错误只在需要时冒出一条,平时终端占满到底
+            // Status/error surfaces only a single line when needed; otherwise the terminal fills to the bottom
             if speech.errorMessage != nil || !statusText.isEmpty {
                 Divider()
                 statusBar
             }
         }
+        // Toolbar panels are drawn as in-window overlays (not floating popovers) so they can never spill
+        // past the window edge, no matter how far right their trigger button sits.
+        .overlay(alignment: .topTrailing) {
+            if showSettings {
+                settingsOverlay
+            } else if showSkillPanel {
+                skillOverlay
+            } else if showClaudeMenu {
+                claudeOverlay
+            }
+        }
         .onAppear {
             speech.onFinalResult = { text in handleRecognized(text) }
-            // 按住空格说话:按下即录,松开即停
+            // Push-to-talk: press to record, release to stop
             pushToTalk.onHoldStart = { speech.startRecording() }
             pushToTalk.onHoldEnd = { speech.stop() }
             pushToTalk.start()
-            // 后台预热听写矫正模型(冷载入十几秒,挪到用户开口之前),失败静默
+            // Warm up the dictation-correction model in the background (cold load takes ~10s, moved ahead of the user speaking); fail silently
             Task.detached(priority: .background) {
                 let config = Config.load()
                 guard config.correctionEnabled else { return }
@@ -51,7 +64,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - 终端区(活动标签的内容)
+    // MARK: - Terminal area (content of the active tab)
 
     @ViewBuilder
     private var terminalArea: some View {
@@ -63,12 +76,13 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - 搜索栏(⌘F)
+    // MARK: - Search bar (⌘F)
 
     private var searchBar: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("搜索滚动区 — 回车下一个,⇧回车上一个", text: $searchText)
+            TextField(loc("Search scrollback — Return for next, ⇧Return for previous",
+                          "搜索回滚内容 — Return 下一个,⇧Return 上一个"), text: $searchText)
                 .textFieldStyle(.plain)
                 .focused($searchFocused)
                 .onSubmit { findNext() }
@@ -81,7 +95,7 @@ struct ContentView: View {
                 .disabled(searchText.isEmpty)
             Button { findNext() } label: { Image(systemName: "chevron.down") }
                 .disabled(searchText.isEmpty)
-            Button("完成") { store.searchVisible = false }
+            Button(loc("Done", "完成")) { store.searchVisible = false }
                 .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 10)
@@ -89,12 +103,12 @@ struct ContentView: View {
         .background(.bar)
     }
 
-    // MARK: - 顶栏(标签栏 + 语音控件同一行)
+    // MARK: - Top bar (tab bar + voice controls on the same row)
 
     private var topBar: some View {
         HStack(spacing: 8) {
             TabBarView(store: store)
-                .frame(maxWidth: .infinity, alignment: .leading)   // 标签栏占弹性宽度
+                .frame(maxWidth: .infinity, alignment: .leading)   // Tab bar takes the flexible width
             voiceControls
                 .padding(.trailing, 10)
         }
@@ -109,7 +123,8 @@ struct ContentView: View {
                 Image(systemName: speech.isRecording ? "mic.fill" : "mic")
             }
             .keyboardShortcut("m", modifiers: [.command, .shift])
-            .help(speech.isRecording ? "停止录音 (⌘⇧M)" : "开始录音 (⌘⇧M);或按住空格说话")
+            .help(speech.isRecording ? loc("Stop recording (⌘⇧M)", "停止录音(⌘⇧M)")
+                                     : loc("Start recording (⌘⇧M); or hold Space to talk", "开始录音(⌘⇧M);或按住空格说话"))
             .tint(speech.isRecording ? .red : nil)
 
             Picker("", selection: $mode) {
@@ -120,10 +135,11 @@ struct ContentView: View {
             .pickerStyle(.segmented)
             .frame(width: 84)
             .labelsHidden()
-            .help("识别模式:听写(text.cursor) / 自然语言(sparkles)")
+            .help(loc("Recognition mode: Dictation (text.cursor) / Natural language (sparkles)",
+                      "识别模式:听写(text.cursor)/ 自然语言(sparkles)"))
 
             if speech.isRecording {
-                Text(speech.liveTranscript.isEmpty ? "聆听中…" : speech.liveTranscript)
+                Text(speech.liveTranscript.isEmpty ? loc("Listening…", "聆听中…") : speech.liveTranscript)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -132,79 +148,126 @@ struct ContentView: View {
             }
 
             Button {
-                showShortcuts.toggle()
-            } label: {
-                Image(systemName: "keyboard")
-            }
-            .help("查看快捷键")
-            .popover(isPresented: $showShortcuts, arrowEdge: .bottom) {
-                ShortcutsHelpView()
-            }
-
-            Button {
                 showSkillPanel.toggle()
             } label: {
                 Image(systemName: "puzzlepiece.extension")
             }
-            .help("Skill 动态加载:勾选技能同步到当前目录的 .claude/skills")
-            .popover(isPresented: $showSkillPanel, arrowEdge: .bottom) {
-                SkillPanelView(currentDirectory: store.activeSession?.currentDirectory,
-                               onDone: { showSkillPanel = false },
-                               runInTerminal: { cmd in
-                                   guard let session = store.activeSession else { return }
-                                   let view = session.controller.terminalView
-                                   view.window?.makeFirstResponder(view)
-                                   // 用 \r(Enter 键)而非 \n:claude 等 TUI 在 raw 模式下认 \r
-                                   session.controller.type(cmd + "\r")
-                               })
-            }
+            .help(loc("Dynamic skill loading: checked skills sync to the current directory's .claude/skills",
+                      "动态加载技能:勾选的技能会同步到当前目录的 .claude/skills"))
 
             claudeMenu
+
+            Button {
+                showSettings.toggle()
+            } label: {
+                Image(systemName: "gearshape")
+            }
+            .help(loc("Settings & shortcuts", "设置与快捷键"))
         }
         .controlSize(.small)
     }
 
-    // MARK: - Claude 快捷启动菜单(选目录 → 在活动格 cd 进去并启动 claude)
+    // MARK: - In-window toolbar panels (kept fully inside the window bounds, unlike floating popovers)
+
+    /// Wrap panel content in a dismiss-on-outside-tap, top-right-anchored floating card.
+    @ViewBuilder
+    private func floatingPanel<Content: View>(dismiss: @escaping () -> Void,
+                                              @ViewBuilder content: () -> Content) -> some View {
+        ZStack(alignment: .topTrailing) {
+            // Full-window tap-catcher: click anywhere outside the panel to dismiss
+            Color.black.opacity(0.001)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: dismiss)
+            content()
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.secondary.opacity(0.3)))
+                .shadow(radius: 18, y: 6)
+                .padding(.top, 44)   // Clear the toolbar so it reads as a dropdown from the trigger button
+                .padding(.trailing, 10)
+        }
+    }
+
+    private var settingsOverlay: some View {
+        floatingPanel(dismiss: { showSettings = false }) {
+            SettingsView(onDone: { showSettings = false })
+        }
+    }
+
+    private var skillOverlay: some View {
+        floatingPanel(dismiss: { showSkillPanel = false }) {
+            SkillPanelView(currentDirectory: store.activeSession?.currentDirectory,
+                           onDone: { showSkillPanel = false },
+                           runInTerminal: { cmd in
+                               guard let session = store.activeSession else { return }
+                               let view = session.controller.terminalView
+                               view.window?.makeFirstResponder(view)
+                               // Use \r (Enter key) rather than \n: TUIs like claude recognize \r in raw mode
+                               session.controller.type(cmd + "\r")
+                           })
+        }
+    }
+
+    // MARK: - Claude quick-launch button (pick a directory → cd into it in the active pane and launch claude)
 
     private var claudeMenu: some View {
-        Menu {
-            if claudeDirs.isEmpty {
-                Text("还没有常用目录,先「添加目录…」")
-            }
-            ForEach(claudeDirs, id: \.self) { dir in
-                Button {
-                    launchClaude(in: dir)
-                } label: {
-                    Label(dirDisplayName(dir), systemImage: "folder")
-                }
-                .help(dir)
-            }
-            Divider()
-            Button {
-                addClaudeDir()
-            } label: {
-                Label("添加目录…", systemImage: "plus")
-            }
-            if !claudeDirs.isEmpty {
-                Menu("删除") {
-                    ForEach(claudeDirs, id: \.self) { dir in
-                        Button(role: .destructive) {
-                            removeClaudeDir(dir)
-                        } label: {
-                            Label(dirDisplayName(dir), systemImage: "trash")
-                        }
-                    }
-                }
-            }
+        Button {
+            showClaudeMenu.toggle()
         } label: {
             Image(systemName: "sparkles.square.filled.on.square")
         }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("常用项目:cd 到目录并启动 Claude(发送到当前活动格)")
+        .help(loc("Frequent projects: cd into a directory and launch Claude (sent to the current active pane)",
+                  "常用项目:cd 进入目录并启动 Claude(发送到当前活动分屏)"))
     }
 
-    /// 菜单里显示 ~/ 缩写路径的最后一段,悬停 help 看全路径
+    /// In-window dropdown for the Claude quick-launch button (a native Menu would spill past the window edge).
+    private var claudeOverlay: some View {
+        floatingPanel(dismiss: { showClaudeMenu = false }) {
+            VStack(alignment: .leading, spacing: 4) {
+                if claudeDirs.isEmpty {
+                    Text(loc("No saved directories yet — use \"Add Directory…\"",
+                             "还没有保存的目录 —— 用「添加目录…」"))
+                        .font(.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                }
+                ForEach(claudeDirs, id: \.self) { dir in
+                    HStack(spacing: 6) {
+                        Button {
+                            launchClaude(in: dir)
+                            showClaudeMenu = false
+                        } label: {
+                            Label(dirDisplayName(dir), systemImage: "folder")
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.plain)
+                        .help(dir)
+                        Button(role: .destructive) {
+                            removeClaudeDir(dir)
+                        } label: {
+                            Image(systemName: "trash").font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help(loc("Remove", "移除"))
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                }
+                Divider()
+                Button {
+                    addClaudeDir()
+                } label: {
+                    Label(loc("Add Directory…", "添加目录…"), systemImage: "plus")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 8).padding(.vertical, 4)
+            }
+            .padding(8)
+            .frame(width: 260)
+        }
+    }
+
+    /// Show the last path component in the menu; hover the help tooltip to see the full path
     private func dirDisplayName(_ dir: String) -> String {
         (dir as NSString).lastPathComponent
     }
@@ -214,8 +277,9 @@ struct ContentView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "添加"
-        panel.message = "选择一个项目目录(点击菜单项时会 cd 进去并启动 claude)"
+        panel.prompt = loc("Add", "添加")
+        panel.message = loc("Choose a project directory (selecting its menu item will cd into it and launch claude)",
+                            "选择一个项目目录(在菜单中点击它会 cd 进入并启动 claude)")
         guard panel.runModal() == .OK, let path = panel.url?.path else { return }
         guard !claudeDirs.contains(path) else { return }
         claudeDirs.append(path)
@@ -231,11 +295,11 @@ struct ContentView: View {
         UserDefaults.standard.set(claudeDirs, forKey: "claude-dirs")
     }
 
-    /// 在当前活动格执行 cd + claude。
-    /// 注:这里是用户点击菜单的明确意图,与语音安全底线(绝不自动回车)不冲突。
+    /// Run cd + claude in the current active pane.
+    /// Note: this is the user's explicit intent from clicking the menu, so it does not conflict with the voice safety rule (never auto-Return).
     private func launchClaude(in dir: String) {
         guard let session = store.activeSession else { return }
-        // 单引号包裹 + 转义,防止路径里的空格/特殊字符拆命令
+        // Wrap in single quotes + escape, so spaces/special characters in the path don't split the command
         let quoted = "'" + dir.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let view = session.controller.terminalView
         view.window?.makeFirstResponder(view)
@@ -243,7 +307,7 @@ struct ContentView: View {
         store.focusActive()
     }
 
-    // MARK: - 状态条(仅错误 / 自然语言解释时出现)
+    // MARK: - Status bar (appears only for errors / natural-language explanations)
 
     private var statusBar: some View {
         Group {
@@ -260,7 +324,7 @@ struct ContentView: View {
         .background(.bar)
     }
 
-    // MARK: - 语音结果处理(双模式在这里分叉,均直接送入终端光标处)
+    // MARK: - Voice result handling (the two modes branch here, both fed straight to the terminal cursor)
 
     private func handleRecognized(_ text: String) {
         switch mode {
@@ -271,8 +335,8 @@ struct ContentView: View {
                 statusText = ""
                 return
             }
-            // 本地小模型矫正(去语气词/纠错别字);任何失败都静默回落原文,绝不阻塞听写
-            statusText = "矫正中…"
+            // Local small-model correction (strip filler words / fix typos); any failure silently falls back to the original text, never blocking dictation
+            statusText = loc("Correcting…", "纠正中…")
             Task {
                 let corrected = (try? await OllamaClient.correct(text,
                                                                  model: config.llmLocalModel,
@@ -281,14 +345,14 @@ struct ContentView: View {
             }
 
         case .naturalLanguage:
-            statusText = "正在转换…"
+            statusText = loc("Converting…", "转换中…")
             let cwd = store.activeSession?.currentDirectory
             Task {
                 do {
                     let r = try await NL2Command.translate(text, currentDirectory: cwd)
                     await MainActor.run {
                         insertIntoTerminal(r.command)
-                        statusText = r.explanation   // 显示一句解释,降低误执行风险
+                        statusText = r.explanation   // Show a one-line explanation to reduce the risk of running the wrong command
                     }
                 } catch {
                     await MainActor.run { statusText = error.localizedDescription }
@@ -297,8 +361,8 @@ struct ContentView: View {
         }
     }
 
-    /// 把识别结果送到活动会话的终端光标处。
-    /// ★ 安全底线:剥除换行(防止一句里混进 \n 触发执行),且绝不自动回车。
+    /// Send the recognized result to the active session's terminal cursor.
+    /// ★ Safety rule: strip newlines (so a stray \n in a sentence can't trigger execution), and never auto-Return.
     private func insertIntoTerminal(_ raw: String) {
         let sanitized = raw
             .replacingOccurrences(of: "\r", with: " ")
@@ -306,18 +370,18 @@ struct ContentView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let session = store.activeSession else { return }
         guard !sanitized.isEmpty else {
-            statusText = "没听清,请再说一次"
+            statusText = loc("Didn't catch that, please say it again", "没听清,请再说一遍")
             return
         }
-        // 先把终端设为第一响应者(同步),再送入文字
+        // Make the terminal the first responder (synchronously) first, then send the text
         let view = session.controller.terminalView
         view.window?.makeFirstResponder(view)
         session.controller.type(sanitized)
         store.focusActive()
-        statusText = ""   // 文字已进终端光标处,那里就是反馈
+        statusText = ""   // The text is now at the terminal cursor — that is the feedback
     }
 
-    // MARK: - 搜索
+    // MARK: - Search
 
     private func findNext() {
         guard let view = store.activeSession?.controller.terminalView, !searchText.isEmpty else { return }
@@ -337,7 +401,7 @@ struct ContentView: View {
             return
         }
         let (index, total) = view.searchMatchSummary(searchText)
-        searchSummary = total == 0 ? "无匹配" : "\(index)/\(total)"
+        searchSummary = total == 0 ? loc("No matches", "无匹配") : "\(index)/\(total)"
     }
 
     private func clearSearch() {

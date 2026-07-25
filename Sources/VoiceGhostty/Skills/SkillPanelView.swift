@@ -1,33 +1,33 @@
 import SwiftUI
 import AppKit
 
-/// Skill 动态加载面板:技能库(源)↔ cwd/.claude/skills(目标)的复选同步器。
-/// - 列出技能库目录下的所有子文件夹,每项一个复选框
-/// - 当前终端 cwd 下 .claude/skills/ 已有的技能默认打勾
-/// - 点「应用」:新勾选 → 从库拷贝到 cwd;取消勾选 → 删除 cwd 下对应技能文件夹
-/// 技能库路径可在面板里点文件夹图标选择(存 UserDefaults),
-/// 未选择过则回落 config 的 skill-library-dir(默认 ~/.claude/skills)。
+/// Skill dynamic-loading panel: a checkbox synchronizer between the skill library (source) ↔ cwd/.claude/skills (target).
+/// - Lists all subfolders under the skill library directory, one checkbox per item
+/// - Skills already present in the current terminal's cwd .claude/skills/ are checked by default
+/// - Click "Apply": newly checked → copy from the library to cwd; unchecked → delete the corresponding skill folder under cwd
+/// The skill library path is chosen in the Settings panel (stored in UserDefaults); if never chosen,
+/// it falls back to the config's skill-library-dir (default ~/.claude/skills).
 struct SkillPanelView: View {
     let currentDirectory: String?
     var onDone: () -> Void = {}
-    /// 同步成功后在活动终端执行命令(如 /reload-skills);nil 则不执行
+    /// Run a command in the active terminal after a successful sync (e.g. /reload-skills); nil means do not run
     var runInTerminal: ((String) -> Void)? = nil
 
+    @ObservedObject private var loc = Loc.shared
     @State private var libraryDir: String = Self.resolveLibraryDir()
     @State private var skills: [SkillItem] = []
     @State private var statusText = ""
     @State private var loadError: String?
 
-    /// 界面选过的路径(UserDefaults)优先,其次 config,再默认 ~/.claude/skills
+    /// A path chosen in the UI (Settings / UserDefaults) takes priority, then config, then the default ~/.claude/skills
     private static func resolveLibraryDir() -> String {
-        UserDefaults.standard.string(forKey: "skill-library-dir")
-            ?? Config.load().skillLibraryDir
+        AppSettings.skillLibraryDir
     }
 
     struct SkillItem: Identifiable {
         let name: String
-        let inLibrary: Bool      // 技能库里存在(不存在 = 仅本地,取消勾选删除后无法再勾回)
-        let loaded: Bool         // 打开面板时 cwd 是否已加载
+        let inLibrary: Bool      // Exists in the skill library (absent = local-only; once unchecked and deleted, it cannot be re-checked)
+        let loaded: Bool         // Whether it was already loaded in cwd when the panel opened
         var checked: Bool
         var id: String { name }
     }
@@ -37,7 +37,7 @@ struct SkillPanelView: View {
         return (cwd as NSString).appendingPathComponent(".claude/skills")
     }
 
-    /// 勾选状态相对初始是否有变化(决定「应用」是否可点)
+    /// Whether the checked state has changed relative to the initial state (decides whether "Apply" is clickable)
     private var hasChanges: Bool {
         skills.contains { $0.checked != $0.loaded }
     }
@@ -45,7 +45,7 @@ struct SkillPanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Skill 动态加载").font(.headline)
+                Text(loc("Skill Loader", "技能加载器")).font(.headline)
                 Spacer()
                 Button {
                     reload()
@@ -53,14 +53,14 @@ struct SkillPanelView: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.plain)
-                .help("重新扫描")
+                .help(loc("Rescan", "重新扫描"))
             }
 
             if let cwd = currentDirectory {
-                Text("当前目录:\((cwd as NSString).abbreviatingWithTildeInPath)")
+                Text(loc("Current directory: ", "当前目录:") + (cwd as NSString).abbreviatingWithTildeInPath)
                     .font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
-                    .help("技能同步到 \(cwd)/.claude/skills/")
+                    .help(loc("Skills sync to ", "技能同步到 ") + "\(cwd)/.claude/skills/")
             }
 
             if let err = loadError {
@@ -68,25 +68,26 @@ struct SkillPanelView: View {
             }
 
             if skills.isEmpty {
-                Text("没有可显示的技能(技能库为空,当前目录也没有已加载技能)")
+                Text(loc("No skills to show (the skill library is empty and the current directory has no loaded skills)",
+                         "没有可显示的技能(技能库为空,且当前目录未加载任何技能)"))
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 Divider()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 6) {
-                        // 第一组:项目中已加载的技能
+                        // First group: skills already loaded in the project
                         skillRows(loaded: true)
-                        // 间隔线:两组都有内容才显示
+                        // Separator: shown only when both groups have content
                         if hasLoadedGroup && hasLibraryOnlyGroup {
                             Divider().padding(.vertical, 2)
                         }
-                        // 第二组:技能库中未加载的技能
+                        // Second group: skills in the library that are not loaded
                         skillRows(loaded: false)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 2)
                 }
-                // popover 里 ScrollView 无固有高度会塌缩成 0,必须按条目数显式给高
+                // Inside a popover, a ScrollView with no intrinsic height collapses to 0, so height must be set explicitly by item count
                 .frame(height: min(CGFloat(skills.count) * 24 + 20, 300))
                 Divider()
             }
@@ -96,21 +97,10 @@ struct SkillPanelView: View {
             }
 
             HStack {
-                Button {
-                    chooseLibraryDir()
-                } label: {
-                    Image(systemName: "folder")
-                }
-                .buttonStyle(.plain)
-                .help("选择技能库文件夹")
-                Text((libraryDir as NSString).abbreviatingWithTildeInPath)
-                    .font(.caption2).foregroundStyle(.tertiary)
-                    .lineLimit(1).truncationMode(.middle)
-                    .help("技能库:\(libraryDir)(点文件夹图标可换,或 config 里配 skill-library-dir)")
                 Spacer()
-                Button("取消") { onDone() }
+                Button(loc("Cancel", "取消")) { onDone() }
                     .keyboardShortcut(.cancelAction)
-                Button("应用") { apply() }
+                Button(loc("Apply", "应用")) { apply() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!hasChanges || targetDir == nil)
             }
@@ -120,7 +110,7 @@ struct SkillPanelView: View {
         .onAppear { reload() }
     }
 
-    // MARK: - 分组行(按打开面板时的加载状态分组,勾选变化不跳组)
+    // MARK: - Grouped rows (grouped by load state at panel-open time; toggling does not move items between groups)
 
     private var hasLoadedGroup: Bool { skills.contains { $0.loaded } }
     private var hasLibraryOnlyGroup: Bool { skills.contains { !$0.loaded } }
@@ -132,7 +122,7 @@ struct SkillPanelView: View {
                     HStack(spacing: 5) {
                         Text(item.name).lineLimit(1)
                         if !item.inLibrary {
-                            Text("仅本地").font(.caption2)
+                            Text(loc("Local only", "仅本地")).font(.caption2)
                                 .foregroundStyle(.orange)
                         }
                     }
@@ -142,26 +132,9 @@ struct SkillPanelView: View {
         }
     }
 
-    // MARK: - 技能库选择
+    // MARK: - Scanning
 
-    private func chooseLibraryDir() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "选择"
-        panel.message = "选择技能库文件夹(其下每个子文件夹是一个可加载的技能)"
-        panel.directoryURL = URL(fileURLWithPath: libraryDir)
-        guard panel.runModal() == .OK, let path = panel.url?.path else { return }
-        libraryDir = path
-        UserDefaults.standard.set(path, forKey: "skill-library-dir")   // 记住选择
-        statusText = ""
-        reload()
-    }
-
-    // MARK: - 扫描
-
-    /// 列出 dir 下的非隐藏子文件夹名(每个子文件夹 = 一个技能)
+    /// List the non-hidden subfolder names under dir (each subfolder = one skill)
     private static func subfolders(of dir: String) -> [String] {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: dir) else { return [] }
@@ -176,14 +149,16 @@ struct SkillPanelView: View {
     private func reload() {
         loadError = nil
         if currentDirectory == nil {
-            loadError = "无法确定当前终端的工作目录"
+            loadError = loc("Unable to determine the current terminal's working directory",
+                            "无法确定当前终端的工作目录")
         } else if !FileManager.default.fileExists(atPath: libraryDir) {
-            // 库缺失只警告,仍列出已加载技能(点 📁 换库)
-            loadError = "技能库不存在:\((libraryDir as NSString).abbreviatingWithTildeInPath)"
+            // A missing library is only a warning; still list loaded skills (click 📁 to switch libraries)
+            loadError = loc("Skill library does not exist: ", "技能库不存在:")
+                + (libraryDir as NSString).abbreviatingWithTildeInPath
         }
         let library = Set(Self.subfolders(of: libraryDir))
         let loaded = Set(targetDir.map(Self.subfolders(of:)) ?? [])
-        // 并集:库里的 + 仅本地的(后者取消勾选后即被删除)
+        // Union: those in the library + local-only ones (the latter are deleted once unchecked)
         skills = library.union(loaded).sorted().map { name in
             SkillItem(name: name,
                       inLibrary: library.contains(name),
@@ -192,7 +167,7 @@ struct SkillPanelView: View {
         }
     }
 
-    // MARK: - 应用(拷贝 / 删除)
+    // MARK: - Apply (copy / delete)
 
     private func apply() {
         guard let targetDir else { return }
@@ -203,14 +178,14 @@ struct SkillPanelView: View {
             let target = (targetDir as NSString).appendingPathComponent(item.name)
             do {
                 if item.checked {
-                    // 新勾选 → 从库拷贝(目标已存在则跳过,不覆盖)
+                    // Newly checked → copy from the library (skip if the target already exists, do not overwrite)
                     guard !fm.fileExists(atPath: target) else { continue }
                     try fm.createDirectory(atPath: targetDir, withIntermediateDirectories: true)
                     let source = (libraryDir as NSString).appendingPathComponent(item.name)
                     try fm.copyItem(atPath: source, toPath: target)
                     copied += 1
                 } else if fm.fileExists(atPath: target) {
-                    // 取消勾选 → 只删 targetDir 下的这个技能文件夹,不碰别处
+                    // Unchecked → delete only this skill folder under targetDir, touching nothing else
                     try fm.removeItem(atPath: target)
                     removed += 1
                 }
@@ -220,15 +195,16 @@ struct SkillPanelView: View {
         }
 
         if failures.isEmpty {
-            statusText = "已同步:拷贝 \(copied) 个,删除 \(removed) 个"
-            // 有实际变更时通知终端里的 Claude 重载技能
+            statusText = loc("Synced: copied ", "已同步:复制 ") + "\(copied)"
+                + loc(", deleted ", ",删除 ") + "\(removed)"
+            // Notify Claude in the terminal to reload skills when there were actual changes
             if copied + removed > 0, let run = runInTerminal {
                 run("/reload-skills")
-                statusText += ",已发送 /reload-skills"
+                statusText += loc(", sent /reload-skills", ",已发送 /reload-skills")
             }
         } else {
-            statusText = "部分失败 — " + failures.joined(separator: "; ")
+            statusText = loc("Partial failure — ", "部分失败 —— ") + failures.joined(separator: "; ")
         }
-        reload()   // 以磁盘实际状态刷新勾选
+        reload()   // Refresh checkboxes from the actual on-disk state
     }
 }
