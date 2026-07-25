@@ -21,8 +21,11 @@ Native macOS. Push-to-talk dictation, natural-language → command, tabs & split
 
 ---
 
-> [!NOTE]
-> **Replace this line with a hero GIF.** Record ~10s: hold <kbd>Space</kbd>, say *"list the biggest files here"*, watch it turn into a command at the cursor, then hit Enter. Save it to `docs/demo.gif` and reference it here. This one image drives most of the stars.
+<div align="center">
+
+![VoiceGhostty demo — one-click Claude launch, dynamic skill loading, in-app settings, tabs & splits](docs/demo.gif)
+
+</div>
 
 ## Why
 
@@ -37,14 +40,32 @@ Working with [Claude Code](https://claude.com/claude-code) means a lot of "type 
 
 | | |
 |---|---|
-| 🎙 **Push-to-talk** | Hold <kbd>Space</kbd> (≥0.25s) to record, release to stop. A quick tap still types a space. |
+| 🎙 **Push-to-talk** | Hold <kbd>Space</kbd> (≥0.25s) to record, release to stop. A quick tap still types a space. Or <kbd>⌘⇧M</kbd> to toggle. |
 | 🧠 **Two voice modes** | *Dictation* (local Ollama model cleans filler words & typos, offline) and *Natural language* (Claude API or Apple on-device model → command + explanation). |
-| 🌏 **Bilingual recognition** | Chinese & English raced through two recognizers at once — even mixed speech like *"help me ls this folder."* |
-| 🗂 **Tabs & splits** | `⌘T` / `⌘W`, `⌘1…⌘9`, split with `⌘⇧D` / `⌘⇧E`, focus-follows-click routing. |
+| 🌏 **Bilingual recognition** | Chinese & English. Your primary language runs live; the other is re-run over the recorded audio if the primary result doesn't hold up — so mixed speech like *"help me ls this folder"* still lands. |
+| 🚦 **Status lights** | Every tab and split pane shows gray / yellow / green — idle, running, finished-and-waiting-on-you. Driven by OSC 133 shell integration, with an output-silence heuristic as fallback. |
+| 🗂 **Tabs & splits** | <kbd>⌘T</kbd> / <kbd>⌘W</kbd>, <kbd>⌘1…⌘9</kbd>, split with <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd>, <kbd>⌘⌥</kbd>+arrows to move focus, click-to-route. Tabs name themselves after their working directory; double-click to rename. |
 | 🧩 **Dynamic skill loading** | Checkbox panel: pick skills from a library, apply, and they're copied into `cwd/.claude/skills/` — unchecking removes them. Auto-runs `/reload-skills`. |
-| 🎨 **Themes & search** | Dark / Light / Solarized Dark / Dracula, `⌘F` scrollback search, live font resize. |
+| 🎨 **Themes & search** | Dark / Light / Solarized Dark / Dracula, <kbd>⌘F</kbd> scrollback search with match counts, live font resize, <kbd>⌘K</kbd> clear. |
 | ✨ **Claude quick-launch** | Save project dirs; one click runs `cd <dir> && claude` in the active pane. |
-| 🔒 **Safe by design** | Voice never auto-presses Enter. On-device speech recognition. API keys stay in a local config file. |
+| ⚙️ **Settings panel** | One gear button: switch the **default language** (flips *both* speech recognition and the whole UI, English ⇆ 中文), set the default skill-library folder, and pick the **command-input color** — with the full shortcut reference on the same panel. |
+| 🎨 **Colored input** | The command line you type at the zsh prompt is highlighted in a color you choose; changing it applies live to every open tab. |
+| 🔒 **Safe by design** | Voice never auto-presses Enter. Newlines are stripped before insertion. On-device speech recognition. API keys stay in a local config file. |
+
+Full inventory with implementation notes: [**docs/FEATURES.md**](docs/FEATURES.md).
+
+## Shortcuts
+
+| Keys | Action | | Keys | Action |
+|---|---|---|---|---|
+| Hold <kbd>Space</kbd> | Talk (tap = space) | | <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> | Split right / down |
+| <kbd>⌘⇧M</kbd> | Start / stop recording | | <kbd>⌘⌥</kbd>←↑↓→ | Move split focus |
+| <kbd>⌘T</kbd> | New tab | | <kbd>⌘+</kbd> <kbd>⌘-</kbd> <kbd>⌘0</kbd> | Font size |
+| <kbd>⌘W</kbd> | Close split, else tab | | <kbd>⌘K</kbd> | Clear screen |
+| <kbd>⌘⇧]</kbd> / <kbd>⌘⇧[</kbd> | Next / previous tab | | <kbd>⌘F</kbd> | Search scrollback |
+| <kbd>⌘1</kbd>…<kbd>⌘8</kbd> / <kbd>⌘9</kbd> | Nth / last tab | | <kbd>⌘C</kbd> <kbd>⌘V</kbd> <kbd>⌘A</kbd> | Copy / paste / all |
+
+The same list lives in the app under ⚙️ → Shortcuts.
 
 ## Install
 
@@ -79,6 +100,8 @@ Requires **macOS 13+**. The natural-language *Apple on-device* backend needs mac
 font-family = Menlo
 font-size   = 14
 theme       = dracula          # dark | light | solarized-dark | dracula
+foreground  = #f8f8f2          # optional, overrides the theme's foreground
+background  = #282a36          # optional, overrides the theme's background
 
 # Natural-language mode
 llm-provider = auto            # auto | claude | apple
@@ -94,13 +117,32 @@ llm-local-url   = http://127.0.0.1:11434
 skill-library-dir = ~/.claude/skills
 ```
 
-> Apps launched from Finder don't inherit your shell env, so put the API key in the config file and `chmod 600` it. Full details in [README.zh-CN.md](README.zh-CN.md).
+Unknown keys and malformed lines are ignored, never an error. All 12 keys are documented in [docs/FEATURES.md](docs/FEATURES.md#15-configuration-file).
+
+> Apps launched from Finder don't inherit your shell env, so put the API key in the config file and `chmod 600` it.
+
+**In-app Settings (⚙️).** The default language, default skill-library folder, and command-input color are also editable in the gear panel — no file editing needed, and these win over the config file.
+
+### Optional: dictation correction model
+
+```bash
+brew install ollama
+brew services start ollama
+ollama pull qwen3:1.7b        # ~1.4GB, plenty for cleanup
+```
+
+No further configuration — dictation runs through it automatically (the model is warmed up at launch). If Ollama isn't running or a correction takes over 15s, the raw transcript is used silently.
+
+### Shell integration
+
+VoiceGhostty generates a ZDOTDIR wrapper at `~/.config/voiceghostty/shell/` that sources your real `~/.z*` files first, then appends two things: a `line-pre-redraw` hook that colors your prompt input (re-reading `~/.config/voiceghostty/input-color` each redraw, so a color change is live in every open tab), and OSC 133 markers that drive the status lights. Your own prompt is untouched, past output and full-screen TUIs like `claude` are untouched, and only zsh is instrumented.
 
 ## How it works
 
 ```
-Mic (AVAudioEngine)
-  → on-device recognition (SFSpeechRecognizer)
+Mic (AVAudioEngine, RMS-gated with pre-roll)
+  → on-device recognition (SFSpeechRecognizer, primary locale live)
+  → arbitration → fallback locale re-run over the captured audio if needed
   → text
      ├─ [Dictation]        local Ollama model cleans it up (offline, silent fallback)
      └─ [Natural language] LLM → command + explanation
@@ -114,11 +156,13 @@ Built on [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) and Apple's Spe
 
 ## Roadmap
 
-- [x] SwiftTerm shell, voice dictation, editable confirm-before-run
+- [x] SwiftTerm shell, voice dictation, insert-at-cursor (never auto-Enter)
 - [x] Tabs / splits / themes / search / config file
 - [x] Natural language → command (Apple on-device **and** Claude API)
 - [x] Dictation correction via local model
 - [x] Dynamic Claude Code skill loading
+- [x] Shell integration: OSC 133 status lights, colored input line, cwd-derived tab titles
+- [x] In-app settings panel + bilingual UI (English ⇆ 中文)
 - [ ] Command-context awareness, dangerous-command tiering, voice edits, TTS readback
 - [ ] Long-term: migrate terminal core to libghostty
 
