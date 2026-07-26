@@ -12,13 +12,18 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14      # Apple Silicon runner, ships with a Swift toolchain
+    # macos-15, not macos-14: Package.swift declares swift-tools-version:6.1, and the macos-14 image
+    # defaults to Xcode 15.4 (Swift 5.10), which refuses to even parse the manifest. macos-15 defaults
+    # to Xcode 16.4 (Swift 6.1.x).
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Show toolchain
-        run: swift --version
+        run: |
+          swift --version
+          xcodebuild -version
 
       - name: Build (release)
         run: swift build -c release
@@ -32,8 +37,9 @@ jobs:
           cp .build/release/VoiceGhostty "$APP/Contents/MacOS/"
           cp Resources/Info.plist        "$APP/Contents/"
           cp Resources/AppIcon.icns      "$APP/Contents/Resources/"
-          # Ad-hoc signature (no paid Developer ID). Gatekeeper still quarantines
-          # downloads — users run `xattr -cr` once, documented in the README.
+          # Ad-hoc signature (no paid Developer ID). Gatekeeper still quarantines downloads —
+          # the Homebrew cask clears that on install, manual installers run `xattr -cr` once.
+          # Both paths are documented in the README and in the release notes below.
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict "$APP" && echo "codesign OK"
 
@@ -60,13 +66,22 @@ jobs:
           generate_release_notes: true
           body: |
             ### Install
-            1. Download the `.zip` below and unzip it.
-            2. First launch is Gatekeeper-blocked (the app is ad-hoc signed, not notarized).
-               Clear the quarantine flag once, then open:
-               ```bash
-               xattr -cr /Applications/VoiceGhostty.app   # or wherever you put it
-               open VoiceGhostty.app
-               ```
-            3. Grant **Microphone** and **Speech Recognition** when macOS asks.
+
+            **Homebrew (easiest):**
+            ```bash
+            brew install --cask 10xteams/tap/voiceghostty
+            ```
+
+            **Manual:** download the `.zip` below, unzip, move to `/Applications`, then clear the
+            quarantine flag — the build is ad-hoc signed and not notarized, so Gatekeeper blocks it
+            until you do:
+            ```bash
+            xattr -cr /Applications/VoiceGhostty.app
+            open /Applications/VoiceGhostty.app
+            ```
+            Prefer not to run `xattr`? Let the first launch be blocked, then **System Settings →
+            Privacy & Security → Open Anyway**. (Right-click → Open no longer works on current macOS.)
+
+            Grant **Microphone** and **Speech Recognition** when macOS asks.
 
             Requires macOS 13+. Built from source with `swift build -c release`.
