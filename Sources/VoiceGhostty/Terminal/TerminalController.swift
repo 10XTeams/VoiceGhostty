@@ -19,7 +19,9 @@ func processCurrentDirectory(_ pid: pid_t) -> String? {
 /// - PTY output (onOutput) / terminal bell (onBell) callbacks are used to judge "busy/done" status
 ///   (becomeFirstResponder is public and cannot be overridden, so mouseDown is used to detect focus;
 ///    dataReceived / bell are both open and can be safely intercepted.)
-/// Note: onOutput / onBell fire on the background read thread; callbacks may only mutate plain variables, never touch @Published.
+/// Note: these all fire on the **main thread**. SwiftTerm's `LocalProcessTerminalView` creates its
+/// `LocalProcess(delegate:)` without a queue, which defaults to `DispatchQueue.main`, so pty reads are
+/// already hopped to the main queue before `dataReceived` runs.
 final class FocusReportingTerminalView: LocalProcessTerminalView {
     var onFocus: (() -> Void)?
     var onOutput: (() -> Void)?
@@ -46,6 +48,17 @@ final class FocusReportingTerminalView: LocalProcessTerminalView {
 final class TerminalController: NSObject, ObservableObject, LocalProcessTerminalViewDelegate {
     let terminalView: FocusReportingTerminalView
 
+    /// The one and only superview `terminalView` ever has, created with the controller and never
+    /// re-parented afterwards.
+    ///
+    /// SwiftUI's representable hands this exact instance back from `makeNSView`, so the AppKit view
+    /// tree under a pane is only ever mutated by SwiftUI itself, at the times it expects. The previous
+    /// design gave SwiftUI a fresh container each time and re-parented the terminal into it, which meant
+    /// two live representables for one pane could hand the view back and forth *between* layout passes —
+    /// leaving SwiftUI's StackLayout cache pointing at children that had moved, and crashing in
+    /// `StackLayout.makeChildren` with EXC_BAD_ACCESS.
+    let hostContainer: NSView
+
     /// Current font size (read/written when SessionStore scales uniformly)
     private(set) var config: Config
 
@@ -53,6 +66,21 @@ final class TerminalController: NSObject, ObservableObject, LocalProcessTerminal
     var currentShellDirectory: String? {
         guard let process = terminalView.process else { return nil }
         return processCurrentDirectory(process.shellPid)
+    }
+
+    /// True when the tty line discipline is in raw mode (ICANON off), i.e. whatever is in the foreground
+    /// reads keystrokes itself instead of letting the kernel do line editing. nil when unknown.
+    ///
+    /// The pty primary reflects the secondary's termios, so a single tcgetattr tells apart the two cases
+    /// the status lights confuse (measured on macOS): a plain command like `sleep 4` runs with ICANON *on*
+    /// (zsh restores canonical mode before exec'ing it), while an interactive TUI — claude, vim, less —
+    /// turns it off for as long as it owns the keyboard. At the prompt zle also runs raw, but the status
+    /// code only asks while a command is running, so that case never comes up.
+    var isRawMode: Bool? {
+        guard let fd = terminalView.process?.childfd, fd >= 0 else { return nil }
+        var attrs = termios()
+        guard tcgetattr(fd, &attrs) == 0 else { return nil }
+        return attrs.c_lflag & tcflag_t(ICANON) == 0
     }
 
     /// Focus/title/working-directory/process-exit callbacks, taken over by SessionStore
@@ -78,11 +106,22 @@ final class TerminalController: NSObject, ObservableObject, LocalProcessTerminal
 
     init(config: Config) {
         self.config = config
-        terminalView = FocusReportingTerminalView(frame: NSRect(x: 0, y: 0, width: 800, height: 400))
+        let bounds = NSRect(x: 0, y: 0, width: 800, height: 400)
+        terminalView = FocusReportingTerminalView(frame: bounds)
+        hostContainer = NSView(frame: bounds)
         super.init()
+
+        // Permanent parent/child link, established once here so nothing else ever has to move the view.
+        hostContainer.autoresizesSubviews = true
+        terminalView.autoresizingMask = [.width, .height]
+        hostContainer.addSubview(terminalView)
 
         applyAppearance()
         terminalView.processDelegate = self
+
+        // Raise the history ceiling off SwiftTerm's 500-line default before the shell prints anything,
+        // so nothing is lost between startup and the first user action.
+        terminalView.getTerminal().changeScrollback(AppSettings.scrollback)
 
         // OSC 133 shell integration: precise command start/end (see the hooks injected in installShellSetup).
         // The handler runs on the parser (background) thread — it may only fan out to the callbacks, which mutate plain vars.
@@ -178,6 +217,15 @@ final class TerminalController: NSObject, ObservableObject, LocalProcessTerminal
         terminalView.font = config.font
     }
 
+    /// Change how many scrolled-off lines this pane keeps. Applied live, so a Settings change reaches
+    /// panes that are already open; shrinking it drops the oldest lines immediately.
+    func setScrollback(_ lines: Int) {
+        terminalView.getTerminal().changeScrollback(lines)
+    }
+
+    /// The terminal buffer, for the transcript logger (which reads finalized lines out of it).
+    var terminal: Terminal { terminalView.getTerminal() }
+
     /// Switch theme (keeping the font size)
     func setTheme(_ themeName: String) {
         config.themeName = themeName
@@ -199,6 +247,15 @@ final class TerminalController: NSObject, ObservableObject, LocalProcessTerminal
     /// Clear the screen: send Ctrl-L (form feed), and the shell redraws and clears the screen
     func clearScreen() {
         terminalView.send(txt: "\u{0C}")
+    }
+
+    // MARK: - Shutdown
+
+    /// Hang up the session: SIGTERM to the shell plus closing the pty primary, which SIGHUPs whatever
+    /// foreground job it was running. Must be called explicitly when a pane/tab closes — merely dropping
+    /// the session would leave the shell (and anything it started) running with nothing attached to it.
+    func terminate() {
+        terminalView.process?.terminate()
     }
 
     // MARK: - LocalProcessTerminalViewDelegate

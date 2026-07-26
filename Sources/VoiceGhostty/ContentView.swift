@@ -51,7 +51,7 @@ struct ContentView: View {
             pushToTalk.onHoldStart = { speech.startRecording() }
             pushToTalk.onHoldEnd = { speech.stop() }
             pushToTalk.start()
-            // Warm up the dictation-correction model in the background (cold load takes ~10s, moved ahead of the user speaking); fail silently
+            // Warm up the transcript-correction model in the background (cold load takes ~10s, moved ahead of the user speaking); fail silently
             Task.detached(priority: .background) {
                 let config = Config.load()
                 guard config.correctionEnabled else { return }
@@ -66,13 +66,19 @@ struct ContentView: View {
 
     // MARK: - Terminal area (content of the active tab)
 
-    @ViewBuilder
+    /// Every tab stays mounted; only the active one is visible.
+    ///
+    /// The obvious alternative — rendering just `store.activeTab` behind `.id(tab.id)` — rebuilds the whole
+    /// pane subtree on every switch, so for one update cycle two representables exist for the same pane and
+    /// both want the one terminal view. That fight is what left SwiftUI's layout cache holding freed
+    /// children. Keeping tabs mounted also matches what they already do: a background tab's shell, status
+    /// light and transcript all keep running regardless.
     private var terminalArea: some View {
-        if let tab = store.activeTab {
-            TabContentView(tab: tab)
-                .id(tab.id)
-        } else {
+        ZStack {
             Color.black
+            ForEach(store.tabs) { tab in
+                TabContentView(tab: tab, isVisible: tab.id == store.activeTab?.id)
+            }
         }
     }
 
@@ -329,27 +335,29 @@ struct ContentView: View {
     private func handleRecognized(_ text: String) {
         switch mode {
         case .dictation:
-            let config = Config.load()
-            guard config.correctionEnabled else {
-                insertIntoTerminal(text)
-                statusText = ""
-                return
-            }
-            // Local small-model correction (strip filler words / fix typos); any failure silently falls back to the original text, never blocking dictation
-            statusText = loc("Correcting…", "纠正中…")
-            Task {
-                let corrected = (try? await OllamaClient.correct(text,
-                                                                 model: config.llmLocalModel,
-                                                                 baseURL: config.llmLocalURL)) ?? text
-                await MainActor.run { insertIntoTerminal(corrected) }
-            }
+            // Verbatim: what you said is what lands at the cursor. Dictation is often half command
+            // fragments and paths, where a correction pass is more likely to damage than to help.
+            // (insertIntoTerminal clears the status bar itself — don't clear it here, or the
+            // "didn't catch that" hint would be wiped out immediately.)
+            insertIntoTerminal(text)
 
         case .naturalLanguage:
+            let config = Config.load()
             statusText = loc("Converting…", "转换中…")
             let cwd = store.activeSession?.currentDirectory
             Task {
+                // Tidy the transcript with the local small model first (strip filler words / fix typos),
+                // so the LLM gets a clean intent; any failure silently falls back to the raw transcript
+                let cleaned: String
+                if config.correctionEnabled {
+                    cleaned = (try? await OllamaClient.correct(text,
+                                                               model: config.llmLocalModel,
+                                                               baseURL: config.llmLocalURL)) ?? text
+                } else {
+                    cleaned = text
+                }
                 do {
-                    let r = try await NL2Command.translate(text, currentDirectory: cwd)
+                    let r = try await NL2Command.translate(cleaned, currentDirectory: cwd)
                     await MainActor.run {
                         insertIntoTerminal(r.command)
                         statusText = r.explanation   // Show a one-line explanation to reduce the risk of running the wrong command

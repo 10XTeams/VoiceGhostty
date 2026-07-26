@@ -6,7 +6,7 @@ import FoundationModels
 /// Natural language → shell command. Two paths:
 ///   - Claude API (cloud LLM, ClaudeClient.swift): preferred when an API Key is configured; most capable
 ///   - Apple on-device model (FoundationModels, macOS 26+): the local fallback when there is no Key
-/// The local Ollama small model only does dictation correction (OllamaClient.swift); it does not take part in command generation.
+/// The local Ollama small model only tidies the transcript before it gets here (OllamaClient.swift); it does not take part in command generation.
 /// The result is sent straight to the terminal cursor (with newlines stripped) and is never executed automatically.
 ///
 /// Controlled by the llm-provider key in `~/.config/voiceghostty/config`:

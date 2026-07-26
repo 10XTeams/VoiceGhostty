@@ -1,8 +1,8 @@
 import AppKit
 
 /// User configuration, loaded from `~/.config/voiceghostty/config`.
-/// Minimal `key = value` format, `#` starts a comment. Supports 12 keys:
-///   font-family, font-size, theme, foreground, background,
+/// Minimal `key = value` format, `#` starts a comment. Supports 13 keys:
+///   font-family, font-size, theme, foreground, background, scrollback,
 ///   llm-provider, llm-model, llm-api-key, llm-local-model, llm-local-url, correction,
 ///   skill-library-dir
 struct Config {
@@ -14,6 +14,12 @@ struct Config {
     var foregroundOverride: NSColor?
     var backgroundOverride: NSColor?
 
+    /// How many lines of scrolled-off output stay reachable with ⌘F / the scrollbar, per pane.
+    /// SwiftTerm's own default is 500, which a chatty session (claude) blows through in seconds —
+    /// hence the much larger default here. Rough cost is a few KB per stored line, and only lines
+    /// actually produced are held, so the ceiling matters more than the number.
+    var scrollback: Int = 10_000
+
     // MARK: LLM selection for natural-language mode (consumed by NL2Command.swift)
     /// auto (default: use Claude if an API key is present, otherwise Apple on-device) | claude | apple
     var llmProvider: String = "auto"
@@ -22,8 +28,9 @@ struct Config {
     /// Anthropic API key; if empty, falls back to the ANTHROPIC_API_KEY environment variable
     var llmAPIKey: String = ""
 
-    // MARK: Dictation correction (consumed by OllamaClient.swift): remove filler words, fix typos
-    /// Whether dictation correction is enabled (local Ollama small model; if the service is down, silently uses the raw text)
+    // MARK: Transcript correction (consumed by OllamaClient.swift): remove filler words, fix typos.
+    // Applies to natural-language mode only — dictation mode is always verbatim.
+    /// Whether transcript correction is enabled (local Ollama small model; if the service is down, silently uses the raw text)
     var correctionEnabled: Bool = true
     /// Local model used for correction (Ollama model name)
     var llmLocalModel: String = OllamaClient.defaultModel
@@ -70,6 +77,7 @@ struct Config {
             case "theme":       config.themeName = value
             case "foreground":  config.foregroundOverride = hexNS(value)
             case "background":  config.backgroundOverride = hexNS(value)
+            case "scrollback":  if let n = Int(value), n >= 0 { config.scrollback = n }
             case "llm-provider": config.llmProvider = value.lowercased()
             case "llm-model":    config.llmModel = value
             case "llm-api-key":  config.llmAPIKey = value

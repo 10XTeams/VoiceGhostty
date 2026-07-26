@@ -150,6 +150,8 @@ final class SpeechRecognizer: ObservableObject {
         guard let primary = primaryRecognizer, primary.isAvailable else { return }
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
+        // Apple defaults this off, which is why dictation used to arrive as one unpunctuated run-on line.
+        req.addsPunctuation = AppSettings.addsPunctuation
         liveRequest = req
         liveTask = primary.recognitionTask(with: req) { [weak self] result, error in
             DispatchQueue.main.async {
@@ -210,6 +212,8 @@ final class SpeechRecognizer: ObservableObject {
         }
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = false
+        // Match the live request, so arbitration can't swap punctuation in or out
+        req.addsPunctuation = AppSettings.addsPunctuation
         let buffers = captured
         fallbackTask = fallback.recognitionTask(with: req) { [weak self] result, error in
             DispatchQueue.main.async {

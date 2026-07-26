@@ -1,8 +1,10 @@
 import Foundation
 
 /// Local offline small model (Ollama, http://127.0.0.1:11434).
-/// It does exactly one thing: **dictation correction** — fixing speech-recognition homophones/typos and dropping filler words.
-/// Short in, short out; qwen3:1.7b is plenty. NL2Command (natural language → command) goes through Claude / Apple on-device and does not pass through here.
+/// It does exactly one thing: **transcript correction** — fixing speech-recognition homophones/typos and dropping filler words.
+/// Short in, short out; qwen3:1.7b is plenty.
+/// It runs only on the natural-language path, as a pre-pass that hands NL2Command a clean intent; dictation mode goes to the
+/// cursor verbatim and never comes through here. Command generation itself is Claude / Apple on-device, not this model.
 enum OllamaClient {
     static let defaultModel = "qwen3:1.7b"
     static let defaultBaseURL = "http://127.0.0.1:11434"

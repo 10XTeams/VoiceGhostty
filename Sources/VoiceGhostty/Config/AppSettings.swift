@@ -25,6 +25,47 @@ enum AppSettings {
         set { defaults.set(newValue, forKey: languageKey) }
     }
 
+    // MARK: - Automatic punctuation
+
+    static let addsPunctuationKey = "adds-punctuation"
+
+    /// Whether recognition inserts punctuation (`SFSpeechRecognitionRequest.addsPunctuation`).
+    /// On by default: dictating a sentence to Claude reads far better with punctuation. Turn it off if you
+    /// mostly dictate shell commands, where a trailing period is noise you have to delete.
+    /// Read when a recognition task starts, so a change applies to the next thing you say.
+    static var addsPunctuation: Bool {
+        get { defaults.object(forKey: addsPunctuationKey) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: addsPunctuationKey) }
+    }
+
+    // MARK: - Scrollback
+
+    static let scrollbackKey = "scrollback"
+
+    /// Bounds offered in the Settings panel. The ceiling is a memory guard: a stored line costs roughly a
+    /// couple of KB, and every pane keeps its own history.
+    static let scrollbackRange = 500...200_000
+
+    /// Lines of scrolled-off output kept per pane. A GUI value wins, then the config file's `scrollback`.
+    static var scrollback: Int {
+        get { (defaults.object(forKey: scrollbackKey) as? Int).map(clampScrollback) ?? Config.load().scrollback }
+        set { defaults.set(clampScrollback(newValue), forKey: scrollbackKey) }
+    }
+
+    static func clampScrollback(_ n: Int) -> Int {
+        min(max(n, scrollbackRange.lowerBound), scrollbackRange.upperBound)
+    }
+
+    // MARK: - Session history file
+
+    static let historyEnabledKey = "save-history"
+
+    /// Whether each pane's transcript is appended to a file in `SessionLogger.directory`.
+    static var historyEnabled: Bool {
+        get { defaults.object(forKey: historyEnabledKey) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: historyEnabledKey) }
+    }
+
     // MARK: - Command input color
 
     static let inputColorKey = "input-color"
@@ -51,6 +92,18 @@ enum AppSettings {
         let dir = (path as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         try? (inputColor + "\n").write(toFile: path, atomically: true, encoding: .utf8)
+    }
+
+    // MARK: - Done chime
+
+    static let doneSoundEnabledKey = "done-sound"
+
+    /// Whether a chime plays when a pane's status light turns green (command finished — your turn).
+    /// On by default: the light is only useful if you happen to be looking at it, and the whole point of
+    /// the green state is that you have gone off to do something else.
+    static var doneSoundEnabled: Bool {
+        get { defaults.object(forKey: doneSoundEnabledKey) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: doneSoundEnabledKey) }
     }
 
     // MARK: - Skill library (source) directory

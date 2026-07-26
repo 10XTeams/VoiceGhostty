@@ -6,7 +6,7 @@ implements it, so this doubles as a map of the codebase.
 [中文版 →](FEATURES.zh-CN.md)
 
 **Stack:** SwiftUI + [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) + Apple `Speech` / `AVFoundation`,
-optional `FoundationModels` (macOS 26+). ~2.9k lines of Swift, 19 files, no external services required to run.
+optional `FoundationModels` (macOS 26+). ~3.4k lines of Swift, 20 files, no external services required to run.
 
 ---
 
@@ -20,6 +20,7 @@ optional `FoundationModels` (macOS 26+). ~2.9k lines of Swift, 19 files, no exte
 | Voice-activity gate | Recognition starts only once RMS volume crosses a threshold; a 6-buffer pre-roll is replayed into the recognizer so the first syllable is never clipped. This avoids leading silence tripping recognizer error 1110. | `Voice/SpeechRecognizer.swift` |
 | Permissions | Speech-recognition and microphone authorization are requested on first use, with a plain-language error naming the exact System Settings pane when denied. A generation counter cancels a recording the user aborted mid-prompt. | `Voice/SpeechRecognizer.swift` |
 | On-device recognition | `SFSpeechRecognizer` runs locally — audio is not uploaded. | `Voice/SpeechRecognizer.swift` |
+| Automatic punctuation | `addsPunctuation` on both the live and fallback requests (Apple defaults it off, which is why dictation would otherwise arrive as one unpunctuated run-on line). Toggleable in Settings, on by default, read when each recognition task starts — so a change applies to the next thing you say. Both requests are kept in sync so bilingual arbitration can't swap punctuation in or out. | `Voice/SpeechRecognizer.swift`, `Config/AppSettings.swift` |
 
 ## 2. Bilingual recognition (zh-CN / en-US)
 
@@ -43,20 +44,22 @@ Switched with the segmented picker in the toolbar (`Voice/VoiceMode.swift`).
 
 ### Dictation (`text.cursor`)
 
-Recognized text goes through an optional **local correction pass** before landing at the cursor.
-
-| Feature | Detail | Source |
-|---|---|---|
-| Local small model | Ollama at `http://127.0.0.1:11434`, default `qwen3:1.7b`. Removes filler words and stutters, best-effort homophone fixes. Few-shot prompted — rules alone make a 1.7B model delete content words. | `Command/OllamaClient.swift` |
-| Never blocks | Service down, timeout (15 s), unparseable reply → silently uses the raw transcript. Correction is a nice-to-have and must never lose your words. | `Command/OllamaClient.swift` |
-| Safety valve | If the corrected text shrinks below 50 % or balloons past 150 % of the original, the model is assumed to have gone off the rails and the original is kept. | `Command/OllamaClient.swift` |
-| Warm-up | On app launch a background `/api/generate` loads the model (`keep_alive: 30m`), moving the ~10 s cold load ahead of your first sentence. Failures are ignored. | `ContentView.swift`, `Command/OllamaClient.swift` |
-| Proxy bypass | The URLSession is configured with an empty `connectionProxyDictionary` so a system proxy (Clash/Surge…) cannot intercept the loopback request. | `Command/OllamaClient.swift` |
-| Structured output | Ollama `format` JSON-schema grammar constrains the reply to a single `text` field — which is also what reliably suppresses qwen3's thinking output. | `Command/OllamaClient.swift` |
+Recognized text lands at the cursor **verbatim**, with no rewriting. Dictation is mostly command fragments, paths and filenames, where a small model is likelier to damage the text than improve it — so this path stays word-for-word on purpose. The only processing is replacing newlines with spaces before insertion (see § 4, Safety model).
 
 ### Natural language (`sparkles`)
 
 Speak an intent, get a shell command plus a one-sentence explanation shown in the status bar.
+
+The transcript goes through a **local correction pass** before reaching the LLM — filler words and homophone typos are cleaned up first, so the LLM receives a clean intent.
+
+| Feature | Detail | Source |
+|---|---|---|
+| Local small model | Ollama at `http://127.0.0.1:11434`, default `qwen3:1.7b`. Removes filler words and stutters, best-effort homophone fixes. Few-shot prompted — rules alone make a 1.7B model delete content words. | `Command/OllamaClient.swift` |
+| Never blocks | Service down, timeout (15 s), unparseable reply → silently passes the raw transcript to the LLM. Correction is a nice-to-have and must never lose your words. | `Command/OllamaClient.swift` |
+| Safety valve | If the corrected text shrinks below 50 % or balloons past 150 % of the original, the model is assumed to have gone off the rails and the original is kept. | `Command/OllamaClient.swift` |
+| Warm-up | On app launch a background `/api/generate` loads the model (`keep_alive: 30m`), moving the ~10 s cold load ahead of your first sentence. Failures are ignored. | `ContentView.swift`, `Command/OllamaClient.swift` |
+| Proxy bypass | The URLSession is configured with an empty `connectionProxyDictionary` so a system proxy (Clash/Surge…) cannot intercept the loopback request. | `Command/OllamaClient.swift` |
+| Structured output | Ollama `format` JSON-schema grammar constrains the reply to a single `text` field — which is also what reliably suppresses qwen3's thinking output. | `Command/OllamaClient.swift` |
 
 | Backend | Detail | Source |
 |---|---|---|
@@ -86,6 +89,7 @@ Source: `ContentView.swift` (`insertIntoTerminal`)
 | Real PTY shell | SwiftTerm `LocalProcessTerminalView` runs `$SHELL` as a **login shell** (`-zsh`), starting in the user's home directory (an `.app` would otherwise start at `/`). | `Terminal/TerminalController.swift` |
 | Font | System monospace (SF Mono) by default, or any named family from the config. Live resize <kbd>⌘+</kbd> / <kbd>⌘=</kbd> / <kbd>⌘-</kbd> / <kbd>⌘0</kbd>, clamped to 8–48 pt and applied to every open session. | `Terminal/SessionStore.swift`, `Config/Config.swift` |
 | Themes | Dark / Light / Solarized Dark / Dracula — each a full 16-color ANSI palette plus foreground/background/cursor. Switchable live from **View → Theme**; the config file can override fg/bg on top of any theme. | `Config/Theme.swift` |
+| Scrollback | 10 000 lines per pane by default, against SwiftTerm's own default of 500 — which a chatty session (claude) blows through in seconds. Settable from the config file (`scrollback`) or Settings (500–200 000), and a Settings change is applied to panes that are already open. Raised before the shell prints anything, so nothing is lost at startup. Roughly a couple of KB per stored line, per pane. | `Terminal/TerminalController.swift`, `Config/AppSettings.swift` |
 | Clear screen | <kbd>⌘K</kbd> sends a form feed so the shell redraws clean. | `Terminal/SessionStore.swift` |
 | Copy / paste / select-all | <kbd>⌘C</kbd> / <kbd>⌘V</kbd> / <kbd>⌘A</kbd> via the system Edit menu (SwiftTerm implements the responder-chain methods). | — |
 | Process exit | A "Process exited" badge appears on the pane; the session is deliberately **not** auto-closed. | `Terminal/TerminalView.swift` |
@@ -104,13 +108,28 @@ Source: `Terminal/SessionStore.swift`, `Terminal/TerminalView.swift`, `VoiceGhos
 
 ## 7. Splits
 
-- <kbd>⌘D</kbd> split right, <kbd>⌘⇧D</kbd> split down — up to 2 panes per tab.
-- <kbd>⌘⌥←↑↓→</kbd> moves focus by direction (Ghostty `goto_split` semantics); a direction perpendicular to
-  the split axis is ignored.
+A tab holds a **split tree**: `SplitNode` is either a `leaf` (one terminal) or a `branch` (a row or column of
+children). Branches nest, so any number of panes in any arrangement is possible — a column of terminals beside a
+single one, a 2×2 grid, and so on. The tree is the single source of truth; the pane list is derived from it.
+
+- <kbd>⌘D</kbd> splits the **active pane** right, <kbd>⌘⇧D</kbd> splits it down, and both repeat. Splitting along
+  the axis a pane already sits on adds a **sibling**, so three <kbd>⌘D</kbd> in a row give three evenly-sized
+  columns rather than a lopsided ½ + ¼ + ¼ nest. Splitting along the other axis replaces that leaf with a
+  two-child branch, which is what lets grids form.
+- <kbd>⌘W</kbd> closes the active pane, moving focus to a neighbour; on the tab's last pane it closes the tab.
+  A branch left holding one child collapses into that child, so closing panes never leaves empty scaffolding.
+- <kbd>⌘⌥←↑↓→</kbd> moves focus by direction (Ghostty `goto_split` semantics), resolved against the tree: walk up
+  to the nearest ancestor split along that direction's axis, step to the sibling on that side, then descend to
+  its facing edge — so moving left enters the neighbouring subtree from *its* right-hand side. Works across
+  nested splits; a direction with no pane on that side leaves focus where it is.
 - Clicking a pane routes **voice, search and execution** to it — focus is tracked through `mouseDown` and
   synced back into the session store.
-- The inactive pane is dimmed with a translucent overlay rather than outlined.
-- Each pane carries its own status dot when split, so you can tell which side is busy and which finished.
+- Inactive panes are dimmed with a translucent overlay rather than outlined. Separators are the 1 pt spacing
+  between panes, showing a background layer through the gap.
+- Each pane carries its own status dot when split, so you can tell which one is busy and which finished; the
+  tab's dot shows the most important state among them.
+- Rendering recurses through the tree (`SplitNodeView`), with `ForEach` keyed off each node's stable id so panes
+  keep their identity as siblings come and go.
 
 Source: `Terminal/SessionStore.swift`, `Terminal/TerminalView.swift`
 
@@ -121,13 +140,26 @@ pane when split. The tab dot shows the most important state among its panes.
 
 - **Precise mode.** Once any OSC 133 marker is seen, command boundaries come from shell integration:
   `C` = command started → yellow, `D` = command finished → green, and green persists until you attend to it.
+- **Interactive TUIs are the exception.** To the shell, `claude` (or vim, or less) is a single command that runs
+  until you quit it, so OSC 133 alone would pin the light yellow for the whole session. Such an app is detected
+  by the tty line discipline — a plain command like `sleep 4` runs with `ICANON` **on**, because zsh restores
+  canonical mode before exec'ing it, while an app that reads keystrokes itself turns it off (`tcgetattr` on the
+  pty primary reflects the secondary's termios). While a command runs in raw mode the light comes from output
+  activity instead: streaming = working (yellow), quiet for ≥ 2 s = your turn (green). At the prompt zle is also
+  raw, but this is only consulted while a command is running, so that case never arises.
 - **Heuristic fallback.** Without shell integration: terminal bell, or "had output then went silent for ≥ 2 s",
   counts as done; recent output counts as busy.
-- The single pane you are actively using stays neutral — a terminal never nags you with its own light. In a
-  split, both panes report independently.
+- The single pane you are actively using stays neutral — a terminal never nags you with its own light — but
+  only while VoiceGhostty is in front. Sent to the background, that pane advances like any other, since its
+  finish is exactly what you left to wait for; coming back to the front resets it to gray. In a split, every
+  pane reports independently.
+- **Chime on green** (Settings → Terminal, on by default). The `Glass` system sound plays on the transition to
+  green, throttled to at most one ring every 5 s so a task that flickers done→busy→done, or a split finishing
+  two panes at once, sounds like one notification. The light is the same event — the sound is just the version
+  you can hear from another window.
 - Polled every 0.5 s alongside a working-directory refresh, which is what keeps tab titles current.
 
-Source: `Terminal/SessionStore.swift`, `Terminal/TerminalController.swift`
+Source: `Terminal/SessionStore.swift`, `Terminal/TerminalController.swift`, `Terminal/DoneChime.swift`
 
 ## 9. zsh shell integration
 
@@ -155,7 +187,29 @@ clears highlighting. Search targets the active pane.
 
 Source: `ContentView.swift`
 
-## 11. Claude Code skill loader (🧩)
+## 11. Session history files
+
+Each pane's transcript is appended to `~/.config/voiceghostty/history/<folder>-<yyyyMMdd-HHmmss>.log`, where
+`<folder>` is the directory the pane was working in when the file was created (panes all start in the home
+directory, so waiting for real output usually names the file after the project you `cd`'d into). Toggleable in
+Settings; on by default.
+
+- **The terminal buffer is the source of truth, not the raw pty stream.** By the time a line reaches the buffer,
+  SwiftTerm has applied every escape sequence — so a redrawing TUI (claude's spinner, its re-rendered message
+  blocks) lands as the one final line you actually saw instead of dozens of half-painted ones.
+- **Only lines that have scrolled off screen are written**, since anything still on screen can be repainted. The
+  final write, on pane close or app quit, takes the on-screen remainder too.
+- **Incremental, not a buffer dump** — the file keeps the whole session even after `scrollback` trims the oldest
+  lines out of memory. If a burst does outrun the buffer between flushes (more than `scrollback` lines within
+  5 s, e.g. `cat`ing a huge file), the gap is recorded as `[… N line(s) dropped …]` rather than silently lost.
+- The alternate screen buffer (vim, less) is skipped: it has no scrollback and its own row numbering, so logging
+  it would interleave garbage and corrupt the absolute-row anchor. `clear` resets that numbering, which is
+  detected and re-anchored.
+- Appended every 5 s (every 10th status tick), plus a final flush when the pane closes or the app quits.
+
+Source: `Terminal/SessionLogger.swift`, `Terminal/SessionStore.swift`
+
+## 12. Claude Code skill loader (🧩)
 
 A checkbox synchronizer between a **skill library** and the active pane's `cwd/.claude/skills/`.
 
@@ -172,7 +226,7 @@ A checkbox synchronizer between a **skill library** and the active pane's `cwd/.
 
 Source: `Skills/SkillPanelView.swift`
 
-## 12. Claude quick-launch (✨)
+## 13. Claude quick-launch (✨)
 
 Save frequently used project directories via a native folder picker; clicking one runs
 `cd '<dir>' && claude` in the **active pane** (path single-quoted and escaped, so spaces are safe). Entries
@@ -180,14 +234,17 @@ show the folder name with the full path on hover, can be removed individually, a
 
 Source: `ContentView.swift`
 
-## 13. Settings panel (⚙️)
+## 14. Settings panel (⚙️)
 
 One gear button, two tabs — editable settings and the full shortcut reference.
 
 | Setting | Effect |
 |---|---|
 | Default language | `中文` / `English`. Switches the **speech-recognition primary locale and the entire UI language** together. |
+| Add punctuation | Whether dictation is punctuated. On by default; applies to the next thing you say. |
 | Command input color | Color picker; mirrored to `~/.config/voiceghostty/input-color` and picked up live by the zsh hook in every open tab. |
+| Scrollback lines | 500–200 000, <kbd>Return</kbd> to apply. Reaches panes that are already open; an out-of-range or unparseable value snaps to what was actually stored, so the field always shows the truth. |
+| Save every session to a file | Session history on/off, plus the folder path and an **Open** button. Applies to panes opened from then on — the decision is made when a pane is created. |
 | Default skill library folder | The source directory the 🧩 panel lists skills from. |
 
 Settings written here (`UserDefaults`) take precedence over the config file for the keys they share; the config
@@ -198,7 +255,7 @@ not native popovers — so they can never spill past the window edge, and clicki
 
 Source: `SettingsView.swift`, `ShortcutsHelpView.swift`, `Config/AppSettings.swift`, `ContentView.swift`
 
-## 14. Bilingual UI
+## 15. Bilingual UI
 
 Every user-facing string carries both languages inline — `loc("Done", "完成")` — so there is no string table to
 keep in sync. Views observe a shared `Loc` object, so switching the language in Settings re-renders the whole UI
@@ -206,10 +263,10 @@ immediately, in lockstep with the recognition language.
 
 Source: `Config/Loc.swift`
 
-## 15. Configuration file
+## 16. Configuration file
 
 `~/.config/voiceghostty/config`, minimal `key = value`, `#` comments, unknown keys and malformed lines ignored
-(never an error). **12 keys:**
+(never an error). **13 keys:**
 
 | Key | Default | Purpose |
 |---|---|---|
@@ -218,17 +275,18 @@ Source: `Config/Loc.swift`
 | `theme` | `dark` | `dark` / `light` / `solarized-dark` / `dracula` |
 | `foreground` | — | `#rrggbb` override on top of the theme |
 | `background` | — | `#rrggbb` override on top of the theme |
+| `scrollback` | `10000` | Lines kept per pane; Settings overrides this |
 | `llm-provider` | `auto` | `auto` / `claude` / `apple` |
 | `llm-model` | `claude-opus-4-8` | Claude model ID |
 | `llm-api-key` | — | Falls back to `$ANTHROPIC_API_KEY` |
-| `correction` | `on` | `off` disables dictation correction |
+| `correction` | `on` | `off` disables the natural-language correction pass (dictation is always verbatim) |
 | `llm-local-model` | `qwen3:1.7b` | Ollama correction model |
 | `llm-local-url` | `http://127.0.0.1:11434` | Ollama endpoint |
 | `skill-library-dir` | `~/.claude/skills` | Skill library source (tilde expanded) |
 
 Source: `Config/Config.swift`
 
-## 16. App & window behavior
+## 17. App & window behavior
 
 - Forces `.regular` activation policy so an SPM executable behaves like a real foreground app.
 - Opens at 80 % of the screen's visible frame (excluding menu bar and Dock), centered; minimum 800×500.
@@ -240,7 +298,7 @@ Source: `Config/Config.swift`
 
 Source: `VoiceGhosttyApp.swift`, `make-app.sh`, `Resources/Info.plist`
 
-## 17. Keyboard shortcuts
+## 18. Keyboard shortcuts
 
 | Keys | Action |
 |---|---|
