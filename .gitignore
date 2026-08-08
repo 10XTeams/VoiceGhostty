@@ -7,3 +7,6 @@ build/
 .claude/
 # Raw screen recordings used to produce docs/demo.gif
 *.mov
+
+# Playwright MCP session artifacts (console logs / page snapshots)
+.playwright-mcp/
