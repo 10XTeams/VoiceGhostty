@@ -83,6 +83,11 @@ final class TerminalController: NSObject, ObservableObject, LocalProcessTerminal
         return attrs.c_lflag & tcflag_t(ICANON) == 0
     }
 
+    /// Fired when SwiftUI tears down the representable hosting this pane — see `TerminalHostView`.
+    /// `SessionStore.movePane` arms it to learn that a detached pane has really been let go, before it
+    /// re-attaches the pane under a different tab.
+    var onRepresentableDismantled: (() -> Void)?
+
     /// Focus/title/working-directory/process-exit callbacks, taken over by SessionStore
     var onFocus: (() -> Void)? {
         get { terminalView.onFocus }

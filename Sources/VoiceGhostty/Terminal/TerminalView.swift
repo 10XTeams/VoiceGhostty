@@ -29,6 +29,26 @@ struct TerminalHostView: NSViewRepresentable {
         return container
     }
 
+    /// Carries the controller into `dismantleNSView`, which is static and gets no view of its own.
+    final class Coordinator {
+        let controller: TerminalController
+        init(controller: TerminalController) { self.controller = controller }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(controller: controller) }
+
+    /// SwiftUI has let go of this pane's representable, so the container it was handed is unparented and
+    /// nothing is competing for the terminal view any more.
+    ///
+    /// `SessionStore.movePane` waits for exactly this before re-attaching a pane in another tab. Guessing
+    /// at the timing instead — "detach now, re-attach on the next main-queue turn" — does not work: this
+    /// teardown runs in the layout pass, which is scheduled *after* queued main-queue blocks, so the
+    /// re-attach would land first and both tabs would briefly hold a representable for the same pane.
+    /// That fight is what `ContentView.terminalArea` and this type's own note are written to prevent.
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.controller.onRepresentableDismantled?()
+    }
+
     /// Visibility is the only thing left to push into AppKit, and it touches no view relationships.
     func updateNSView(_ container: NSView, context: Context) {
         let wasHidden = container.isHidden
@@ -197,12 +217,38 @@ private struct TabChipView: View {
     private var isActive: Bool { tab.id == store.activeTabID }
     private var isEditing: Bool { editingTabID == tab.id }
 
-    var body: some View {
-        HStack(spacing: 6) {
-            // Status dot: gray = normal / yellow = busy / green = done and awaiting input
+    /// Past this many panes the dot row would out-measure the tab title, so the chip falls back to the
+    /// single aggregate dot — the pane count beside it still says how many are hiding behind it.
+    private static let maxIndividualDots = 6
+
+    /// Status dots: gray = normal / yellow = busy / green = done and awaiting input.
+    ///
+    /// A split shows one dot per pane, in the panes' visual order (left→right / top→bottom, the order
+    /// `TerminalTab.panes` is already in), so a glance at the tab bar tells you *which* half of a background
+    /// tab is waiting for you — the aggregate dot could only say that something in there was.
+    ///
+    /// Reading `pane.status` here does not observe each pane: the repaint is driven by `tab.objectWillChange`,
+    /// which `SessionStore.tickStatus` sends whenever any pane's status actually changes. That is the same
+    /// mechanism `aggregateStatus` has always ridden on, and it deliberately does not wake the store.
+    @ViewBuilder private var statusDots: some View {
+        if tab.isSplit && tab.panes.count <= Self.maxIndividualDots {
+            HStack(spacing: 3) {
+                ForEach(tab.panes) { pane in
+                    Circle()
+                        .fill(pane.status.dotColor)
+                        .frame(width: 8, height: 8)
+                }
+            }
+        } else {
             Circle()
                 .fill(tab.aggregateStatus.dotColor)
                 .frame(width: 9, height: 9)
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            statusDots
             if tab.isSplit {
                 // Pane count rather than a fixed 2-up glyph — a tab can hold any number of splits
                 HStack(spacing: 2) {

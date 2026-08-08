@@ -113,8 +113,8 @@ struct SettingsView: View {
                         AppSettings.doneSoundEnabled = $0
                         if $0 { DoneChime.preview() }
                     }
-                Text(loc("Plays a sound the moment a pane's status dot turns green (command finished — your turn). The pane you are typing in stays silent while VoiceGhostty is in front; send the app to the background and it reports its finish like any other pane. At most one chime every few seconds.",
-                         "分屏的状态灯转绿(命令跑完,该你了)时响一声。VoiceGhostty 在前台时,你正在输入的那个分屏不会响;切到别的应用后,它和其他分屏一样会报告完成。每几秒最多响一次。"))
+                Text(loc("Plays a sound when a pane finishes (command finished — your turn). With shell integration active it rings only for a finish the program announces — a bell, or the shell reporting the command ended — so an interactive app that just goes quiet for a moment turns its light green without making a sound, and a long task can't ring every few seconds while it works. Without shell integration a pause in the output is the only signal there is, so it rings on that. The pane you are typing in stays silent while VoiceGhostty is in front; send the app to the background and it reports its finish like any other pane. At most one chime every few seconds.",
+                         "分屏跑完(该你了)时响一声。启用了 shell 集成时,只认程序明确宣告的完成 —— 终端响铃,或 shell 报告命令结束 —— 所以交互式程序只是安静了一会儿的话,灯会转绿但不出声,免得一个长任务在干活期间每隔几秒响一次。没有 shell 集成时,输出停顿是唯一的信号,那就按停顿来响。VoiceGhostty 在前台时,你正在输入的那个分屏不会响;切到别的应用后,它和其他分屏一样会报告完成。每几秒最多响一次。"))
                     .font(.caption2).foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }

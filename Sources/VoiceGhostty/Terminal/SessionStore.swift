@@ -33,9 +33,11 @@ final class TerminalSession: ObservableObject, Identifiable {
     @Published var isTerminated = false
     /// Busy/done status (only mutated on the main thread; driven by SessionStore's polling)
     @Published var status: SessionStatus = .normal
-    /// Set by the last status advance when this pane *became* done, so the store can chime on the transition
-    /// rather than for every tick the light stays green.
-    private(set) var justTurnedDone = false
+    /// Set by the last status advance when this pane *became* done — the transition, not the state, so the
+    /// chime can fire once instead of on every tick the light stays green.
+    private var justTurnedDone = false
+    /// Whether that transition also earned a *sound* — a stricter test than the light's. See `refreshStatus`.
+    private(set) var justEarnedChime = false
 
     // The following are plain variables written by the background read thread and polled by the main thread (values are idempotent, races are harmless)
     private var lastOutputAt = Date.distantPast
@@ -104,6 +106,7 @@ final class TerminalSession: ObservableObject, Identifiable {
         bellPending = false
         cmdEndedPending = false
         justTurnedDone = false
+        justEarnedChime = false
         return changed
     }
 
@@ -112,14 +115,30 @@ final class TerminalSession: ObservableObject, Identifiable {
     ///   Exception: an interactive TUI (see `isInteractiveApp`) is one long "command" to the shell, so its
     ///   light comes from the output heuristic instead — otherwise it would be pinned yellow the whole session.
     /// - Fallback heuristic (no shell integration): bell or "had output then silent ≥ threshold" → done; recent output → busy.
+    ///
+    /// The chime is deliberately stricter than the light. A bell or an OSC 133 D is the program *stating* it
+    /// is finished; "output went quiet" is only an inference, and inside a TUI that inference is usually
+    /// wrong — claude pausing between tool calls looks exactly like claude finishing, so the pane re-earns
+    /// "done" every few seconds and the chime's throttle becomes a metronome for the length of the task.
+    /// A TUI going quiet therefore moves the light and nothing else: a green dot you can ignore costs
+    /// nothing, a sound you have to ignore costs attention.
+    ///
+    /// The fallback branch cannot make that distinction and does not try. `isInteractiveApp` is only
+    /// meaningful *while a command is running* — at the prompt zle holds the tty raw too, so it reads true
+    /// there (see `TerminalController.isRawMode`, which states that precondition). Without OSC 133 there is
+    /// no "a command is running" to gate it with, so consulting it would invert the test: silent at the very
+    /// moment a command ends, and ringing mid-command instead. Silence is the only completion signal that
+    /// branch has, so it rings on silence, TUI or not.
     @discardableResult
     func refreshStatus(silence: TimeInterval) -> Bool {
         let old = status
+        var chimeworthy = false
         if osc133Seen {
             if bellPending {
                 bellPending = false
                 cmdEndedPending = false
                 status = .done
+                chimeworthy = true
             } else if cmdRunning {
                 if isInteractiveApp {
                     advanceByOutput(silence: silence)   // streaming = working, gone quiet = your turn
@@ -129,6 +148,7 @@ final class TerminalSession: ObservableObject, Identifiable {
             } else if cmdEndedPending {
                 cmdEndedPending = false
                 status = .done
+                chimeworthy = true
             }
             // else: keep the current status (a finished command stays green until you attend it or start a new one)
         } else {
@@ -136,11 +156,14 @@ final class TerminalSession: ObservableObject, Identifiable {
                 bellPending = false
                 hasActivity = false
                 status = .done
+                chimeworthy = true
             } else {
                 advanceByOutput(silence: silence)
+                chimeworthy = status == .done
             }
         }
         justTurnedDone = old != .done && status == .done
+        justEarnedChime = justTurnedDone && chimeworthy
         return status != old
     }
 
@@ -360,7 +383,8 @@ final class TerminalTab: ObservableObject, Identifiable {
         return name.isEmpty ? "/" : name
     }
 
-    /// The tab dot takes the most important status among the split panes (done > busy > normal)
+    /// The most important status among the split panes (done > busy > normal). The tab chip normally shows
+    /// one dot per pane instead; this is its fallback for a tab split more ways than the chip can draw.
     var aggregateStatus: SessionStatus {
         panes.map(\.status).max { $0.priority < $1.priority } ?? .normal
     }
@@ -411,6 +435,7 @@ final class SessionStore: ObservableObject {
         let activeID = activeSession?.id
         tickCount += 1
         let flushHistory = tickCount % historyFlushEvery == 0
+        var titleChanged = false
         for tab in tabs {
             var changed = false
             for pane in tab.panes {
@@ -423,9 +448,10 @@ final class SessionStore: ObservableObject {
                     if pane.resetStatus() { changed = true }
                 } else {
                     if pane.refreshStatus(silence: silenceThreshold) { changed = true }
-                    if pane.justTurnedDone { DoneChime.play() }
+                    if pane.justEarnedChime { DoneChime.play() }
                 }
-                if pane.refreshDirectory() { changed = true }   // Update cwd → the tab name changes accordingly
+                // Update cwd → the tab name changes accordingly
+                if pane.refreshDirectory() { changed = true; titleChanged = true }
                 if flushHistory { pane.flushHistory() }
             }
             // Panes are nested ObservableObjects, so a status/cwd change has to be announced by hand for
@@ -434,6 +460,11 @@ final class SessionStore: ObservableObject {
             // terminal hosts included — twice a second, purely to repaint a 9pt circle.
             if changed { tab.objectWillChange.send() }
         }
+        // Tab *names* have one reader a per-tab announcement can never reach: `AppCommands`, which observes
+        // the store and nothing else, and which names the tabs in the Move-Split-to-Tab menu. Without this
+        // the menu keeps offering to send a pane to where a tab used to be. Gated on an actual directory
+        // change — a `cd`, not the twice-a-second heartbeat the comment above is about.
+        if titleChanged { objectWillChange.send() }
     }
 
     /// Notify observers after a focus change so the tab bar / active-pane highlight (and the active tab's neutral dot) refresh.
@@ -533,7 +564,11 @@ final class SessionStore: ObservableObject {
 
     /// ⌘W: if split, close the active pane first; otherwise close the whole tab
     func closeActivePaneOrTab() {
-        guard let tab = activeTab else { return }
+        // A move commits `activeTabID` to the destination before the pane gets there, so ⌘W in that window
+        // would resolve to the destination and terminate a pane the user never selected — or close the
+        // destination tab out from under the arriving pane. Dropped rather than queued: the window is a
+        // frame or two, and a ⌘W the user has to press twice beats one that kills the wrong shell.
+        guard panesInFlight.isEmpty, let tab = activeTab else { return }
         if let closed = tab.closeActivePane() {
             closed.finishHistory()
             closed.controller.terminate()
@@ -541,6 +576,180 @@ final class SessionStore: ObservableObject {
         } else {
             close(tab: tab)
         }
+    }
+
+    // MARK: - Moving a pane between tabs
+
+    /// Panes detached from one tab and not yet attached to the next, held here so they stay alive while
+    /// they belong to no tree. See `movePane` for why the move needs that gap.
+    ///
+    /// Keyed by pane id, not a single slot: two moves can overlap — a held-down ⌘⌃N repeats faster than a
+    /// layout pass — and a lone slot would silently drop the first pane's *only* remaining reference. ARC
+    /// would then take its shell down with it, mid-command, with nothing logged.
+    private var panesInFlight: [UUID: TerminalSession] = [:]
+
+    /// If SwiftUI never tears the detached pane down (an update it folds away, a stalled main thread), the
+    /// handshake below never fires and the pane would be stranded outside every tree with a live shell.
+    private let landingBackstopDelay: TimeInterval = 0.25
+
+    /// Each in-flight pane's backstop timer, kept so a landing that already happened can cancel its own.
+    /// Left to run, a stale backstop would consume a *later* move's in-flight entry — same pane id, a
+    /// different destination — and deliver the pane to the earlier target, silently reverting what the
+    /// user just asked for.
+    private var landingBackstops: [UUID: DispatchWorkItem] = [:]
+
+    /// Move a pane into another tab, shell and scrollback intact.
+    ///
+    /// As *data* this is nearly free — a `TerminalSession` owns its pty, its terminal view and its
+    /// scrollback, and the split tree only references it — but it cannot be done in one update, because of
+    /// the invariant `TerminalHostView` rests on: **a pane's representable is never duplicated**. Every tab
+    /// stays mounted (see `ContentView`), so dropping the pane's id from one tab's `ForEach` and adding it
+    /// to another's in a single update leaves SwiftUI free to run `makeNSView` for the destination *before*
+    /// it tears the source down. Both would then hold the controller's one permanent `hostContainer`, and
+    /// the late teardown would unparent the view the destination had just adopted. That is precisely the
+    /// two-representables-one-terminal fight `70f9f39` traced ten `EXC_BAD_ACCESS` reports back to.
+    ///
+    /// So the move is detach → **wait to be told the teardown happened** → re-attach. The signal is
+    /// `dismantleNSView`; a queued main-queue turn is not a substitute, because the layout pass that tears
+    /// the view down is scheduled after those blocks, so the re-attach would win the race it is meant to
+    /// avoid. `panesInFlight` owns the session while it is between trees.
+    func movePane(_ paneID: UUID, toTab targetTabID: UUID) {
+        // One move at a time. `activeTabID` is committed to the destination below, before the pane lands,
+        // so a second ⌘⌃N inside the flight window would resolve `activeTab` to the *destination* and move
+        // that tab's own pane — a terminal the user never selected, with nothing to show it happened.
+        // A held-down shortcut repeats every 33 ms; a flight can last the full backstop.
+        guard panesInFlight.isEmpty else { return }
+        guard let sourceIdx = tabs.firstIndex(where: { tab in tab.panes.contains { $0.id == paneID } }),
+              let pane = tabs[sourceIdx].panes.first(where: { $0.id == paneID }),
+              tabs[sourceIdx].id != targetTabID,
+              tabs.contains(where: { $0.id == targetTabID }) else { return }
+        let source = tabs[sourceIdx]
+        panesInFlight[paneID] = pane
+
+        // Armed before the detach, so the teardown the detach causes is the one we hear about.
+        pane.controller.onRepresentableDismantled = { [weak self] in
+            // Hop off the layout pass before touching the model: restructuring from inside one is the
+            // other half of what `70f9f39` fixed.
+            DispatchQueue.main.async { self?.land(paneID, inTab: targetTabID) }
+        }
+
+        if let pruned = source.root.removing(paneID) {
+            source.root = pruned
+            if source.activePaneID == paneID { source.activePaneID = source.panes[0].id }
+        } else {
+            // It was the tab's only pane, so the tab leaves with it. Not `close(tab:)` — this is a move,
+            // and that would terminate the very shell we are carrying across.
+            tabs.remove(at: sourceIdx)
+        }
+        // Switch now rather than on landing: the in-between frame should show the destination (briefly
+        // without its new pane) instead of a source tab that may have just stopped existing.
+        activeTabID = targetTabID
+
+        armBackstop(paneID) { [weak self] in self?.land(paneID, inTab: targetTabID) }
+    }
+
+    /// Schedule a move's backstop, replacing (and cancelling) any timer still pending for that pane.
+    private func armBackstop(_ paneID: UUID, _ work: @escaping () -> Void) {
+        landingBackstops.removeValue(forKey: paneID)?.cancel()
+        let item = DispatchWorkItem(block: work)
+        landingBackstops[paneID] = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + landingBackstopDelay, execute: item)
+    }
+
+    /// Second half of a move. Idempotent by way of `panesInFlight`: whichever trigger arrives first — the
+    /// teardown handshake or the backstop — does the work, and the other finds nothing to do.
+    private func land(_ paneID: UUID, inTab targetTabID: UUID) {
+        guard let pane = panesInFlight.removeValue(forKey: paneID) else { return }
+        landingBackstops.removeValue(forKey: paneID)?.cancel()
+        pane.controller.onRepresentableDismantled = nil
+
+        if let target = tabs.first(where: { $0.id == targetTabID }) {
+            // Lands beside the destination's active pane — where a ⌘D over there would have put it.
+            target.root = target.root.inserting(pane, after: target.activePaneID, axis: .horizontal)
+            // `inserting` returns the tree *unchanged* when it finds no anchor, which happens if the
+            // destination's active pane was closed while we waited. Checking the result rather than
+            // assuming it is the difference between a visible pane and a shell running with no view.
+            if target.panes.contains(where: { $0.id == paneID }) {
+                target.activePaneID = paneID
+                activeTabID = target.id
+                focusSession(pane)
+                return
+            }
+        }
+        // Destination gone, or it refused the insert. The pane still has to land somewhere — its shell is
+        // running and this is the last reference to it.
+        adopt(pane, at: tabs.count)
+    }
+
+    /// Put a homeless pane into a tab of its own.
+    private func adopt(_ pane: TerminalSession, at index: Int) {
+        let tab = TerminalTab(pane: pane)
+        tabs.insert(tab, at: min(max(index, 0), tabs.count))
+        activeTabID = tab.id
+        focusSession(pane)
+    }
+
+    /// ⌘⌃1…8: move the active pane into the Nth tab.
+    func moveActivePane(toTabIndex index: Int) {
+        guard tabs.indices.contains(index), let tab = activeTab, tabs[index].id != tab.id else { return }
+        movePane(tab.activePaneID, toTab: tabs[index].id)
+    }
+
+    /// Label for the Nth slot of the Move-Split-to-Tab menu, naming the tab when one is there.
+    ///
+    /// The menu is a fixed eight slots rather than a list of the tabs that exist, because AppKit only takes
+    /// on new key equivalents when the menu is next opened: a menu rebuilt as tabs come and go leaves
+    /// ⌘⌃N dead — for a tab created since the last time the menu was pulled down — until the user opens it.
+    /// Eight slots that are merely enabled and disabled keep the key equivalents fixed from launch.
+    func moveTargetLabel(_ index: Int) -> String {
+        guard tabs.indices.contains(index) else { return "Tab \(index + 1)" }
+        return "\(index + 1). \(tabs[index].displayTitle)"
+    }
+
+    /// Whether that slot is a destination the active pane can actually go to.
+    func canMoveActivePane(toTabIndex index: Int) -> Bool {
+        panesInFlight.isEmpty && tabs.indices.contains(index) && tabs[index].id != activeTabID
+    }
+
+    /// ⌘⌃← / ⌘⌃→: move the active pane into the previous/next tab, wrapping the way tab switching does.
+    func moveActivePane(toAdjacentTab delta: Int) {
+        guard tabs.count > 1, let cur = tabs.firstIndex(where: { $0.id == activeTabID }),
+              let tab = activeTab else { return }
+        movePane(tab.activePaneID, toTab: tabs[(cur + delta + tabs.count) % tabs.count].id)
+    }
+
+    /// ⌘⌃T: move the active pane out into a tab of its own, placed just after the one it left. A no-op for
+    /// an unsplit tab — that pane already *is* a tab of its own.
+    func moveActivePaneToNewTab() {
+        guard panesInFlight.isEmpty else { return }     // see `movePane` — one move at a time
+        guard let source = activeTab, source.isSplit else { return }
+        let pane = source.activePane
+        let paneID = pane.id
+        // The id, not the tab: the controller owns this closure and the tab (transitively) owns the
+        // controller, so capturing the object would be a retain cycle that only `land` could break.
+        let sourceID = source.id
+        panesInFlight[paneID] = pane
+
+        // Same detach → teardown handshake → re-attach as `movePane`; only the destination differs.
+        pane.controller.onRepresentableDismantled = { [weak self] in
+            DispatchQueue.main.async { self?.landInNewTab(paneID, after: sourceID) }
+        }
+        // `isSplit` guarantees a remainder, so the source tab always survives this.
+        if let pruned = source.root.removing(paneID) {
+            source.root = pruned
+            source.activePaneID = source.panes[0].id
+        }
+        armBackstop(paneID) { [weak self] in self?.landInNewTab(paneID, after: sourceID) }
+    }
+
+    /// Second half of ⌘⌃T. Idempotent for the same reason `land` is.
+    private func landInNewTab(_ paneID: UUID, after sourceTabID: UUID) {
+        guard let pane = panesInFlight.removeValue(forKey: paneID) else { return }
+        landingBackstops.removeValue(forKey: paneID)?.cancel()
+        pane.controller.onRepresentableDismantled = nil
+        // Resolved now, not when the move started: tabs may have come or gone while we waited.
+        let at = tabs.firstIndex { $0.id == sourceTabID }.map { $0 + 1 } ?? tabs.count
+        adopt(pane, at: at)
     }
 
     /// Move focus to the adjacent pane by direction (⌘⌥←/→/↑/↓, matching Ghostty's goto_split).

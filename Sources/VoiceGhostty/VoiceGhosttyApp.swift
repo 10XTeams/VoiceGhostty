@@ -60,6 +60,29 @@ struct AppCommands: Commands {
 
             Divider()
 
+            // Move the active pane to another tab: ⌘⌃ + the tab's own ⌘N number, so "go to tab 2" and
+            // "send this split to tab 2" differ by one modifier. The list is live, and names the tabs —
+            // the shortcuts alone would never tell you which tab is which.
+            // Eight fixed slots, enabled/disabled against the current tabs — never a list built from
+            // `store.tabs`. AppKit picks up changed key equivalents only when the menu is next opened, so a
+            // list that grows with the tabs leaves ⌘⌃N dead on a newly created tab until you pull the menu
+            // down once. See `SessionStore.moveTargetLabel`.
+            Menu("Move Split to Tab") {
+                ForEach(1...8, id: \.self) { n in
+                    Button(store.moveTargetLabel(n - 1)) { store.moveActivePane(toTabIndex: n - 1) }
+                        .keyboardShortcut(KeyEquivalent(Character("\(n)")), modifiers: [.command, .control])
+                        .disabled(!store.canMoveActivePane(toTabIndex: n - 1))
+                }
+            }
+            Button("Move Split to New Tab") { store.moveActivePaneToNewTab() }
+                .keyboardShortcut("t", modifiers: [.command, .control])
+            Button("Move Split to Next Tab") { store.moveActivePane(toAdjacentTab: +1) }
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .control])
+            Button("Move Split to Previous Tab") { store.moveActivePane(toAdjacentTab: -1) }
+                .keyboardShortcut(.leftArrow, modifiers: [.command, .control])
+
+            Divider()
+
             // ⌘1…⌘8 jump directly, ⌘9 = last tab (matches Ghostty)
             ForEach(1...8, id: \.self) { n in
                 Button("Tab \(n)") { store.selectTab(index: n - 1) }
