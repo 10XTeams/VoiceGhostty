@@ -122,6 +122,27 @@ single one, a 2×2 grid, and so on. The tree is the single source of truth; the 
   to the nearest ancestor split along that direction's axis, step to the sibling on that side, then descend to
   its facing edge — so moving left enters the neighbouring subtree from *its* right-hand side. Works across
   nested splits; a direction with no pane on that side leaves focus where it is.
+- <kbd>⌘⌃1…8</kbd> / <kbd>⌘⌃←→</kbd> / <kbd>⌘⌃T</kbd> **send the active pane to another tab** — the same number
+  as the tab's own <kbd>⌘N</kbd>, one modifier apart. The shell keeps running, the scrollback comes along and
+  the status light never flickers: a `TerminalSession` owns its pty and terminal view, and the split tree only
+  references it, so the move is a detach and a re-insert. Moving a tab's last pane out takes the (now empty)
+  tab with it, which makes it a tab merge. `Terminal ▸ Move Split to Tab` lists the tabs by name — the
+  shortcuts alone can't tell you which tab is which.
+- That move is **detach → wait for the teardown → re-attach**, and has to be. `TerminalHostView` hands back
+  the controller's one permanent `hostContainer`, which is only sound while a pane's representable is never
+  duplicated — and every tab stays mounted. Dropping the pane's id from one tab's `ForEach` and adding it to
+  another's in a single update would let SwiftUI build the destination before tearing the source down, leaving
+  the late teardown to unparent the view the destination had just adopted. That is the same
+  two-representables-one-terminal fight the `EXC_BAD_ACCESS` crashes were traced to.
+- The wait is a real signal, not a guess: `dismantleNSView` tells the store the old representable is gone.
+  Simply re-attaching on the next main-queue turn does **not** work — the layout pass that performs the
+  teardown is scheduled after queued main-queue blocks, so the re-attach would win exactly the race it was
+  meant to avoid. A 0.25 s backstop covers the case where SwiftUI never tears the view down at all, since a
+  pane stranded outside every tree still has a live shell.
+- `SessionStore.panesInFlight` owns each pane while it is between trees — keyed by pane id, because two moves
+  can overlap and a single slot would drop the first pane's last reference, letting ARC take its shell down
+  mid-command. On landing, `inserting` is checked rather than trusted: it returns the tree unchanged when its
+  anchor pane has been closed in the meantime, and an unnoticed no-op would leave a running shell with no view.
 - Clicking a pane routes **voice, search and execution** to it — focus is tracked through `mouseDown` and
   synced back into the session store.
 - Inactive panes are dimmed with a translucent overlay rather than outlined. Separators are the 1 pt spacing
@@ -136,7 +157,9 @@ Source: `Terminal/SessionStore.swift`, `Terminal/TerminalView.swift`
 ## 8. Status lights (busy / done)
 
 A three-state dot — gray (idle), yellow (running), green (finished, your turn) — on every tab, and on every
-pane when split. The tab dot shows the most important state among its panes.
+pane when split. A split tab carries one dot per pane, in the panes' visual order, so the tab bar says *which*
+pane is waiting for you rather than only that one of them is. Past 6 panes the row would out-measure the tab
+title, so it collapses to a single dot showing the most important state among them.
 
 - **Precise mode.** Once any OSC 133 marker is seen, command boundaries come from shell integration:
   `C` = command started → yellow, `D` = command finished → green, and green persists until you attend to it.
@@ -155,8 +178,16 @@ pane when split. The tab dot shows the most important state among its panes.
   pane reports independently.
 - **Chime on green** (Settings → Terminal, on by default). The `Glass` system sound plays on the transition to
   green, throttled to at most one ring every 5 s so a task that flickers done→busy→done, or a split finishing
-  two panes at once, sounds like one notification. The light is the same event — the sound is just the version
-  you can hear from another window.
+  two panes at once, sounds like one notification.
+- **The chime is stricter than the light.** It rings only for a finish that was *announced* — a bell, or an
+  OSC 133 D — not for one inferred from silence inside an interactive app. A TUI pausing between tool calls
+  is indistinguishable from a TUI finishing, so ringing on that inference turned the 5 s throttle into a
+  metronome for the length of the task. Such a pause still turns the light green: a dot you can ignore costs
+  nothing, a sound you have to ignore costs attention.
+- The fallback branch does not attempt that distinction, and must not. `isRawMode` only means "interactive
+  app" *while a command is running* — at the prompt zle holds the tty raw as well — and without OSC 133 there
+  is no running-command state to gate it with. Consulting it there inverts the test outright: silent exactly
+  when a command ends, ringing mid-command instead. So without shell integration, silence rings, TUI or not.
 - Polled every 0.5 s alongside a working-directory refresh, which is what keeps tab titles current.
 
 Source: `Terminal/SessionStore.swift`, `Terminal/TerminalController.swift`, `Terminal/DoneChime.swift`
@@ -310,6 +341,9 @@ Source: `VoiceGhosttyApp.swift`, `make-app.sh`, `Resources/Info.plist`
 | <kbd>⌘1</kbd>…<kbd>⌘8</kbd> / <kbd>⌘9</kbd> | Jump to Nth tab / last tab |
 | <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> | Split right / split down |
 | <kbd>⌘⌥←↑↓→</kbd> | Move split focus by direction |
+| <kbd>⌘⌃1</kbd>…<kbd>⌘⌃8</kbd> | Send this split to the Nth tab |
+| <kbd>⌘⌃←</kbd> / <kbd>⌘⌃→</kbd> | Send this split to the previous / next tab |
+| <kbd>⌘⌃T</kbd> | Send this split out to a tab of its own |
 | <kbd>⌘+</kbd> <kbd>⌘=</kbd> / <kbd>⌘-</kbd> / <kbd>⌘0</kbd> | Font larger / smaller / reset |
 | <kbd>⌘K</kbd> | Clear screen |
 | <kbd>⌘F</kbd> | Search scrollback |

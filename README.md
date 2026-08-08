@@ -61,6 +61,7 @@ Full inventory with implementation notes: [**docs/FEATURES.md**](docs/FEATURES.m
 |---|---|---|---|---|
 | Hold <kbd>Space</kbd> | Talk (tap = space) | | <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> | Split right / down (repeatable) |
 | <kbd>⌘⇧M</kbd> | Start / stop recording | | <kbd>⌘⌥</kbd>←↑↓→ | Move split focus |
+| | | | <kbd>⌘⌃1…8</kbd> / <kbd>⌘⌃T</kbd> | Send split to Nth / a new tab |
 | <kbd>⌘T</kbd> | New tab | | <kbd>⌘+</kbd> <kbd>⌘-</kbd> <kbd>⌘0</kbd> | Font size |
 | <kbd>⌘W</kbd> | Close split, else tab | | <kbd>⌘K</kbd> | Clear screen |
 | <kbd>⌘⇧]</kbd> / <kbd>⌘⇧[</kbd> | Next / previous tab | | <kbd>⌘F</kbd> | Search scrollback |
