@@ -38,8 +38,12 @@ struct Config {
     var llmLocalURL: String = OllamaClient.defaultBaseURL
 
     // MARK: Skill dynamic loading (consumed by SkillPanelView.swift)
-    /// Skill library (source) directory: the panel lists its subfolders as selectable skills
-    var skillLibraryDir: String =
+    /// Skill library (source) directories: the panel lists each one's subfolders as selectable skills,
+    /// one group per directory. Write several in the config file either comma-separated on one
+    /// `skill-library-dir` line or by repeating the key; order here is the order of the panel's groups.
+    var skillLibraryDirs: [String] = [Config.defaultSkillLibraryDir]
+
+    static let defaultSkillLibraryDir =
         (NSHomeDirectory() as NSString).appendingPathComponent(".claude/skills")
 
     /// Resolved final theme (with fg/bg overrides applied)
@@ -60,6 +64,8 @@ struct Config {
     /// Read and parse the config file; if the file is missing or has bad lines, fall back to defaults (bad lines are ignored, no error).
     static func load() -> Config {
         var config = Config()
+        // The first skill-library-dir line replaces the default; further lines append to it
+        var sawSkillLibraryDir = false
         guard let text = try? String(contentsOfFile: configPath, encoding: .utf8) else {
             return config
         }
@@ -84,7 +90,13 @@ struct Config {
             case "llm-local-model": config.llmLocalModel = value
             case "llm-local-url":   config.llmLocalURL = value
             case "correction":      config.correctionEnabled = (value.lowercased() != "off")
-            case "skill-library-dir": config.skillLibraryDir = (value as NSString).expandingTildeInPath
+            case "skill-library-dir":
+                let dirs = value.split(separator: ",")
+                    .map { ($0.trimmingCharacters(in: .whitespaces) as NSString).expandingTildeInPath }
+                    .filter { !$0.isEmpty }
+                guard !dirs.isEmpty else { break }
+                config.skillLibraryDirs = (sawSkillLibraryDir ? config.skillLibraryDirs : []) + dirs
+                sawSkillLibraryDir = true
             default:            break  // Unknown keys are ignored
             }
         }

@@ -242,18 +242,24 @@ Source: `Terminal/SessionLogger.swift`, `Terminal/SessionStore.swift`
 
 ## 12. Claude Code skill loader (🧩)
 
-A checkbox synchronizer between a **skill library** and the active pane's `cwd/.claude/skills/`.
+A checkbox synchronizer between one or more **skill libraries** and the active pane's `cwd/.claude/skills/`.
 
-- Lists every non-hidden subfolder of the library as a loadable skill; skills already present in the project
+- Lists every non-hidden subfolder of each library as a loadable skill; skills already present in the project
   are pre-checked.
-- Two groups: already loaded in the project, and available in the library — plus a **"Local only"** marker for
-  skills that exist in the project but not the library (unchecking one deletes it and it cannot be re-added
-  from here).
+- **One group per library folder**, in the configured order, headed by the folder's name (the full path when
+  two libraries end in the same name). A name found in several libraries belongs to the first one, since the
+  target is a single `.claude/skills/<name>`.
+- A trailing **"Local only"** group holds skills that exist in the project but in no library (unchecking one
+  deletes it and it cannot be re-added from here).
 - **Apply** copies newly checked skills in and deletes unchecked ones, touching nothing else in the directory.
   Existing targets are never overwritten. Per-skill failures are reported without aborting the rest.
 - On a successful change it types `/reload-skills` into the terminal so a running Claude session picks the
   skills up immediately.
-- Rescan button, live status line, and a warning (not an error) when the library path does not exist.
+- Each group folds: click its header to collapse/expand it, or use the two header buttons to **expand all** /
+  **collapse all**. A collapsed header still shows `checked/total`, and the folding is remembered across
+  panel opens (`skill-groups-collapsed` in `UserDefaults`).
+- Rescan button, live status line, and a warning (not an error) naming any library path that does not exist —
+  the remaining libraries and the loaded skills are still listed.
 
 Source: `Skills/SkillPanelView.swift`
 
@@ -276,7 +282,7 @@ One gear button, two tabs — editable settings and the full shortcut reference.
 | Command input color | Color picker; mirrored to `~/.config/voiceghostty/input-color` and picked up live by the zsh hook in every open tab. |
 | Scrollback lines | 500–200 000, <kbd>Return</kbd> to apply. Reaches panes that are already open; an out-of-range or unparseable value snaps to what was actually stored, so the field always shows the truth. |
 | Save every session to a file | Session history on/off, plus the folder path and an **Open** button. Applies to panes opened from then on — the decision is made when a pane is created. |
-| Default skill library folder | The source directory the 🧩 panel lists skills from. |
+| Skill library folders | The source directories the 🧩 panel lists skills from — **Add…** takes several folders at once, each row removes itself, and the panel groups by folder in this order. Removing every row is allowed and sticks — with no library, the 🧩 panel lists only the skills already in the project. |
 
 Settings written here (`UserDefaults`) take precedence over the config file for the keys they share; the config
 file remains the power-user / fallback path.
@@ -313,7 +319,7 @@ Source: `Config/Loc.swift`
 | `correction` | `on` | `off` disables the natural-language correction pass (dictation is always verbatim) |
 | `llm-local-model` | `qwen3:1.7b` | Ollama correction model |
 | `llm-local-url` | `http://127.0.0.1:11434` | Ollama endpoint |
-| `skill-library-dir` | `~/.claude/skills` | Skill library source (tilde expanded) |
+| `skill-library-dir` | `~/.claude/skills` | Skill library sources (tilde expanded). Several folders: comma-separate them, or repeat the key — the order is the 🧩 panel's group order |
 
 Source: `Config/Config.swift`
 

@@ -34,7 +34,7 @@ Working with [Claude Code](https://claude.com/claude-code) means a lot of "type 
 - **Talk instead of type.** Hold <kbd>Space</kbd> to dictate straight into the shell prompt.
 - **Say what you want, get the command.** Natural-language mode turns *"undo the last commit but keep the changes"* into `git reset --soft HEAD~1` — with a one-line explanation before you run it.
 - **Never surprise-executes.** Recognized text is dropped at the cursor with newlines stripped. **You** press Enter. Always.
-- **Load Claude Code skills on the fly.** A 🧩 panel syncs skills from your library into the current project's `.claude/skills/`, then fires `/reload-skills`.
+- **Load Claude Code skills on the fly.** A 🧩 panel syncs skills from your libraries — grouped by folder — into the current project's `.claude/skills/`, then fires `/reload-skills`.
 
 ## Features
 
@@ -47,7 +47,7 @@ Working with [Claude Code](https://claude.com/claude-code) means a lot of "type 
 | 🔔 **Done chime** | A sound the moment a pane finishes, throttled to once every few seconds. The bell is stricter than the light: with shell integration it rings only for a finish the program *announces*, so a TUI that just pauses between tool calls turns its dot green without making a sound — otherwise the throttle would become a metronome for the length of the task. |
 | 🗂 **Tabs & nested splits** | <kbd>⌘T</kbd> / <kbd>⌘W</kbd>, <kbd>⌘1…⌘9</kbd>. <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> split the **active pane** and repeat — a tab holds any number of panes nested to any depth: three <kbd>⌘D</kbd> in a row give three even columns, a perpendicular split turns one of them into a grid. <kbd>⌘⌥</kbd>+arrows move focus across the tree, <kbd>⌘W</kbd> closes the pane before the tab, click-to-route. Tabs name themselves after their working directory and show a pane count; double-click to rename. |
 | ↗️ **Move a split to another tab** | <kbd>⌘⌃1…8</kbd> sends the focused pane to the Nth tab — the tab's own <kbd>⌘N</kbd> number, one modifier apart — <kbd>⌘⌃←→</kbd> to the neighbouring tab, <kbd>⌘⌃T</kbd> out into a tab of its own. The shell keeps running, scrollback comes along, the status light doesn't blink. Move a tab's last pane away and that tab goes with it, so this doubles as "merge these two tabs". |
-| 🧩 **Dynamic skill loading** | Checkbox panel: pick skills from a library, apply, and they're copied into `cwd/.claude/skills/` — unchecking removes them. Auto-runs `/reload-skills`. |
+| 🧩 **Dynamic skill loading** | Checkbox panel: pick skills from one or more libraries — grouped by folder — apply, and they're copied into `cwd/.claude/skills/`; unchecking removes them. Auto-runs `/reload-skills`. |
 | 🎨 **Themes & search** | Dark / Light / Solarized Dark / Dracula, <kbd>⌘F</kbd> scrollback search with match counts, live font resize, <kbd>⌘K</kbd> clear. Scrollback holds 10 000 lines per pane by default, adjustable and applied to open panes on the spot. |
 | 📜 **Session history** | Every pane's transcript is appended to `~/.config/voiceghostty/history/<folder>-<start time>.log`. Taken from the terminal buffer, so a redrawing TUI lands as the lines you actually saw — and the file keeps the whole session even after scrollback trims it. |
 | ✨ **Claude quick-launch** | Save project dirs; one click runs `cd <dir> && claude` in the active pane. |
@@ -142,15 +142,15 @@ correction      = on
 llm-local-model = qwen3:1.7b
 llm-local-url   = http://127.0.0.1:11434
 
-# Skill library the 🧩 panel lists from
-skill-library-dir = ~/.claude/skills
+# Skill libraries the 🧩 panel lists from (comma-separate or repeat the key for several)
+skill-library-dir = ~/.claude/skills, ~/work/team-skills
 ```
 
 Unknown keys and malformed lines are ignored, never an error. All 13 keys are documented in [docs/FEATURES.md](docs/FEATURES.md#16-configuration-file).
 
 > Apps launched from Finder don't inherit your shell env, so put the API key in the config file and `chmod 600` it.
 
-**In-app Settings (⚙️).** The default language, automatic punctuation, scrollback lines, session history, done chime, default skill-library folder, and command-input color are also editable in the gear panel — no file editing needed, and these win over the config file.
+**In-app Settings (⚙️).** The default language, automatic punctuation, scrollback lines, session history, done chime, skill-library folders, and command-input color are also editable in the gear panel — no file editing needed, and these win over the config file.
 
 ### Optional: correction model for natural-language mode
 

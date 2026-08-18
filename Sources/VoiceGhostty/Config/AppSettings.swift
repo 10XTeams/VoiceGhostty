@@ -106,15 +106,50 @@ enum AppSettings {
         set { defaults.set(newValue, forKey: doneSoundEnabledKey) }
     }
 
-    // MARK: - Skill library (source) directory
+    // MARK: - Skill library (source) directories
 
+    static let skillLibraryDirsKey = "skill-library-dirs"
+    /// Pre-multi-folder key, kept only so an existing single-folder choice survives the upgrade
     static let skillLibraryDirKey = "skill-library-dir"
 
-    /// Skill library folder whose subfolders the puzzle panel lists as loadable skills.
-    /// A GUI selection (UserDefaults) wins, then the config file's `skill-library-dir`,
-    /// then the default `~/.claude/skills`.
-    static var skillLibraryDir: String {
-        get { defaults.string(forKey: skillLibraryDirKey) ?? Config.load().skillLibraryDir }
-        set { defaults.set(newValue, forKey: skillLibraryDirKey) }
+    /// Skill library folders whose subfolders the puzzle panel lists as loadable skills — one panel
+    /// group per folder, in this order. A GUI selection (UserDefaults) wins, then the config file's
+    /// `skill-library-dir`, then the default `~/.claude/skills`.
+    ///
+    /// Once the GUI has written the key, its value is the answer even when it is empty: having removed
+    /// every library is a choice, and resurrecting the config-file default there would look like the
+    /// removal never took.
+    static var skillLibraryDirs: [String] {
+        get {
+            if let dirs = defaults.stringArray(forKey: skillLibraryDirsKey) {
+                return dedupe(dirs)
+            }
+            // Migration: a folder picked before multi-select existed is the sole library
+            if let legacy = defaults.string(forKey: skillLibraryDirKey), !legacy.isEmpty {
+                return [legacy]
+            }
+            return dedupe(Config.load().skillLibraryDirs)
+        }
+        set {
+            defaults.set(dedupe(newValue), forKey: skillLibraryDirsKey)
+            defaults.removeObject(forKey: skillLibraryDirKey)   // The list is now the only source
+        }
+    }
+
+    // MARK: - Skill panel group folding
+
+    static let collapsedSkillGroupsKey = "skill-groups-collapsed"
+
+    /// Which 🧩 panel groups are folded shut (library path, or "" for the local-only group).
+    /// Absent = everything expanded, which is the state a first-time panel should open in.
+    static var collapsedSkillGroups: Set<String> {
+        get { Set(defaults.stringArray(forKey: collapsedSkillGroupsKey) ?? []) }
+        set { defaults.set(Array(newValue), forKey: collapsedSkillGroupsKey) }
+    }
+
+    /// Drop empties and repeats while keeping the caller's order (the order the panel groups in)
+    private static func dedupe(_ dirs: [String]) -> [String] {
+        var seen = Set<String>()
+        return dirs.filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 }
