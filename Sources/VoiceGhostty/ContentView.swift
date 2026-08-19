@@ -28,11 +28,12 @@ struct ContentView: View {
                 Divider()
                 searchBar
             }
-            // Status/error surfaces only a single line when needed; otherwise the terminal fills to the bottom
-            if speech.errorMessage != nil || !statusText.isEmpty {
-                Divider()
-                statusBar
-            }
+            // Always in the layout, empty or not. This line comes and goes on its own during voice use
+            // ("converting…", an explanation, "didn't catch that"), and a row that appears and disappears
+            // resizes the terminal under whatever is running in it — a SIGWINCH landing mid-frame is what
+            // leaves a full-screen TUI's input line drawn a row off until it next repaints itself.
+            Divider()
+            statusBar
         }
         // Toolbar panels are drawn as in-window overlays (not floating popovers) so they can never spill
         // past the window edge, no matter how far right their trigger button sits.
@@ -313,17 +314,23 @@ struct ContentView: View {
         store.focusActive()
     }
 
-    // MARK: - Status bar (appears only for errors / natural-language explanations)
+    // MARK: - Status bar (errors / natural-language explanations; a reserved strip when there is nothing to say)
 
     private var statusBar: some View {
+        // One line, always exactly one line: a message long enough to wrap would resize the terminal just
+        // as surely as the bar appearing does, so it truncates and keeps the full text in the tooltip.
         Group {
             if let err = speech.errorMessage {
-                Text(err).foregroundStyle(.red)
+                Text(err).foregroundStyle(.red).help(err)
+            } else if !statusText.isEmpty {
+                Text(statusText).foregroundStyle(.secondary).help(statusText)
             } else {
-                Text(statusText).foregroundStyle(.secondary)
+                Text(" ")   // Holds the row's height open so the terminal never changes size
             }
         }
         .font(.caption)
+        .lineLimit(1)
+        .truncationMode(.tail)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)

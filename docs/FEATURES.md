@@ -325,6 +325,10 @@ Source: `Config/Config.swift`
 
 ## 17. App & window behavior
 
+- The bottom status strip is always in the layout, empty or not, and never wraps past one line (long text
+  truncates, the tooltip holds all of it). A strip that appeared and disappeared with each message — or grew
+  a second line — would resize the terminal under whatever is running in it, and a SIGWINCH landing mid-frame
+  leaves a full-screen TUI drawn a row off until it repaints itself.
 - Forces `.regular` activation policy so an SPM executable behaves like a real foreground app.
 - Opens at 80 % of the screen's visible frame (excluding menu bar and Dock), centered; minimum 800×500.
 - Quits when the last window closes.
