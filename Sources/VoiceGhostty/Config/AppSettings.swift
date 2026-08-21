@@ -147,6 +147,15 @@ enum AppSettings {
         set { defaults.set(Array(newValue), forKey: collapsedSkillGroupsKey) }
     }
 
+    static let collapsedPluginGroupsKey = "plugin-groups-collapsed"
+
+    /// Which groups of the 🧩 panel's Plugin page are folded shut (keyed by marketplace name).
+    /// Kept separate from the skill page's set: the two pages group by different things entirely.
+    static var collapsedPluginGroups: Set<String> {
+        get { Set(defaults.stringArray(forKey: collapsedPluginGroupsKey) ?? []) }
+        set { defaults.set(Array(newValue), forKey: collapsedPluginGroupsKey) }
+    }
+
     /// Drop empties and repeats while keeping the caller's order (the order the panel groups in)
     private static func dedupe(_ dirs: [String]) -> [String] {
         var seen = Set<String>()

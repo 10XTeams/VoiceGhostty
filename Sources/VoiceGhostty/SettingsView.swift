@@ -151,21 +151,27 @@ struct SettingsView: View {
 
             // Skills
             VStack(alignment: .leading, spacing: 6) {
-                sectionTitle(loc("SKILLS", "技能"))
+                sectionTitle(loc("SKILLS & PLUGINS", "技能与插件"))
                 HStack {
-                    Text(loc("Skill library folders", "技能库文件夹")).font(.callout)
-                    InfoTip(text: loc("Subfolders here are the skills the puzzle panel lists for syncing into a project. Pick several folders and the panel groups the skills by folder, in this order.",
-                                      "这些文件夹下的每个子文件夹会作为技能,显示在拼图面板中,可同步到项目里。可选多个文件夹,拼图面板按此顺序分组显示。"))
+                    Text(loc("Loader folders", "加载器文件夹")).font(.callout)
+                    InfoTip(text: loc("Folders the puzzle panel loads from. A folder carrying .claude-plugin/marketplace.json (or plugin.json) is a plugin folder and shows up on the panel's Plugin page; any other folder is a skill library, whose subfolders are skills and whose top-level .md files are agents. Pick several and the panel groups by folder, in this order.",
+                                      "拼图面板从这些文件夹加载。带 .claude-plugin/marketplace.json(或 plugin.json)的算插件文件夹,出现在面板的「插件」页;其余算技能库,子文件夹是技能、顶层 .md 文件是 Agent。可选多个,面板按此顺序分组。"))
                     Spacer()
                     Button(loc("Add…", "添加…")) { addSkillDirs() }
                 }
                 ForEach(Array(skillDirs.enumerated()), id: \.element) { index, dir in
+                    let kind = LoaderLibrary.classify(dir)
                     HStack(spacing: 6) {
-                        Image(systemName: "folder").foregroundStyle(.secondary)
+                        Image(systemName: kind.isSkillLibrary ? "folder" : "shippingbox")
+                            .foregroundStyle(.secondary)
                         Text((dir as NSString).abbreviatingWithTildeInPath)
                             .font(.caption).foregroundStyle(.secondary)
                             .lineLimit(1).truncationMode(.middle)
                             .help(dir)
+                        // What it was detected as — added right here, so a folder that lands on the
+                        // wrong page of the 🧩 panel is explained before you go looking for it there
+                        Text(Self.kindLabel(kind))
+                            .font(.caption2).foregroundStyle(.tertiary)
                         Spacer()
                         Button {
                             removeSkillDir(at: index)
@@ -173,15 +179,28 @@ struct SettingsView: View {
                             Image(systemName: "minus.circle")
                         }
                         .buttonStyle(.plain)
-                        .help(loc("Remove this library", "移除这个技能库"))
+                        .help(loc("Remove this folder", "移除这个文件夹"))
                     }
                 }
                 if skillDirs.isEmpty {
-                    Text(loc("No skill library — the 🧩 panel will only list skills already in the project.",
-                             "没有技能库 —— 🧩 面板只会列出项目里已加载的技能。"))
+                    Text(loc("No folder added — the 🧩 panel will only list skills already in the project.",
+                             "没有添加文件夹 —— 🧩 面板只会列出项目里已加载的技能。"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    /// Short badge naming what a loader folder was detected as, with the plugin count where there is one
+    private static func kindLabel(_ kind: LoaderLibrary.Kind) -> String {
+        let loc = Loc.shared
+        switch kind {
+        case .skills:
+            return loc("skills / agents", "技能 / Agent")
+        case .marketplace(_, let plugins):
+            return loc("marketplace · \(plugins.count) plugins", "插件市场 · \(plugins.count) 个插件")
+        case .barePlugin:
+            return loc("plugin (no marketplace)", "插件(无 marketplace)")
         }
     }
 
@@ -238,12 +257,14 @@ struct SettingsView: View {
         guard !picked.isEmpty else { return }
         skillDirs += picked
         AppSettings.skillLibraryDirs = skillDirs
+        LoaderLibrary.invalidateCache()
     }
 
     private func removeSkillDir(at index: Int) {
         guard skillDirs.indices.contains(index) else { return }
         skillDirs.remove(at: index)
         AppSettings.skillLibraryDirs = skillDirs
+        LoaderLibrary.invalidateCache()
     }
 }
 
