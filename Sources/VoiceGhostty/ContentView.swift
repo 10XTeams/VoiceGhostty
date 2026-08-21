@@ -236,7 +236,7 @@ struct ContentView: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .padding(.horizontal, 8).padding(.vertical, 4)
                 }
-                ForEach(claudeDirs, id: \.self) { dir in
+                ForEach(sortedClaudeDirs, id: \.self) { dir in
                     HStack(spacing: 6) {
                         Button {
                             launchClaude(in: dir)
@@ -271,6 +271,17 @@ struct ContentView: View {
             }
             .padding(8)
             .frame(width: 260)
+        }
+    }
+
+    /// The menu lists directories A→Z by their displayed name (the last path component), so the order
+    /// stays predictable no matter when each one was added. The stored array keeps its insertion order.
+    private var sortedClaudeDirs: [String] {
+        claudeDirs.sorted {
+            let a = dirDisplayName($0), b = dirDisplayName($1)
+            let byName = a.localizedStandardCompare(b)
+            return byName == .orderedSame ? $0.localizedStandardCompare($1) == .orderedAscending
+                                          : byName == .orderedAscending
         }
     }
 
