@@ -240,12 +240,24 @@ Settings; on by default.
 
 Source: `Terminal/SessionLogger.swift`, `Terminal/SessionStore.swift`
 
-## 12. Claude Code skill loader (🧩)
+## 12. Claude Code loader (🧩)
 
-A checkbox synchronizer between one or more **skill libraries** and the active pane's `cwd/.claude/skills/`.
+A segmented control at the top of the panel switches between two pages — **Skill / Agent** and **Plugin**.
+They are separate because the two are stored in completely different ways: skills and agents are files copied
+into the project, while plugins live in one shared install cache that each project merely switches on or off.
 
-- Lists every non-hidden subfolder of each library as a loadable skill; skills already present in the project
-  are pre-checked.
+### 12.1 Skill / Agent page
+
+A checkbox synchronizer between one or more **skill libraries** and the active pane's `cwd/.claude/`.
+
+- Each library contributes two kinds of item: **subfolders are skills** (synced to `.claude/skills/<name>`) and
+  **top-level `.md` files are agents** (synced to `.claude/agents/<name>.md`). A small leading icon tells them
+  apart, and an agent's `.md` suffix is dropped from the displayed name.
+- To manage agents, just add a folder such as `~/.claude/agents` to the library list in Settings — no second
+  set of configuration keys.
+- Items already present in the project are pre-checked.
+- Folders classified as **plugin folders** are not scanned here (see 12.2) — their subfolders are plugin
+  sources, not skills.
 - **One group per library folder**, in the configured order, headed by the folder's name (the full path when
   two libraries end in the same name). A name found in several libraries belongs to the first one, since the
   target is a single `.claude/skills/<name>`.
@@ -261,13 +273,52 @@ A checkbox synchronizer between one or more **skill libraries** and the active p
 - Rescan button, live status line, and a warning (not an error) naming any library path that does not exist —
   the remaining libraries and the loaded skills are still listed.
 
-Source: `Skills/SkillPanelView.swift`
+### 12.2 Plugin page
+
+A plugin is not copied into a project — what it needs is for the project to know where to find it, plus a
+switch, and both go into the project's own `cwd/.claude/settings.local.json`. This page reads and writes
+nothing under `~/.claude`.
+
+**A folder is classified when it is added** (`Skills/LoaderLibrary.swift`), from Claude Code's own manifests:
+
+| Folder contains | Classified as | Which page |
+|---|---|---|
+| `.claude-plugin/marketplace.json` | marketplace | Plugin page, listing each of its `plugins[]` |
+| `.claude-plugin/plugin.json` (and not the above) | single plugin | Plugin page, but **not checkable** |
+| neither | skill library | Skill / Agent page |
+
+The verdict is printed next to the folder in Settings (`marketplace · 3 plugins` / `skills / agents`), so
+which page a folder landed on is visible where you added it, not something to go hunting for. **A folder
+classified as a plugin is no longer scanned for skills or agents** — its subfolders are plugin sources, and
+listing them as skills would only offer things nothing can load.
+
+- Checking a plugin and applying writes two things into the project's `settings.local.json`: the switch in
+  `enabledPlugins`, and a `directory`-source registration in `extraKnownMarketplaces` pointing at the folder.
+  Unchecking removes the switch, and once no plugin from a marketplace is enabled its registration goes too,
+  so the file never accumulates paths nothing uses.
+- `settings.local.json` rather than `settings.json` because the registration must name the folder by
+  **absolute path** — a fact about this machine, meaningless in a file shared through the repo.
+- A bare plugin folder (only `plugin.json`) is listed but cannot be checked: project settings reference a
+  plugin as `name@marketplace`, and such a folder declares no marketplace. The tooltip says to add the
+  marketplace folder that lists it instead.
+- A trailing **"Not from an added folder"** group holds ids the project enables that no added folder accounts
+  for (a folder since removed, say) — listed so they stay switchable.
+- Only `enabledPlugins` and `extraKnownMarketplaces` are rewritten, leaving every other setting untouched,
+  and marketplace entries this panel did not register are left alone. A file that does not exist with nothing
+  to write is not created — merely browsing the panel never litters a project with a stub file.
+- A settings.local.json hand-edited into invalid JSON is reported, not overwritten.
+- Plugin changes need a **restart of the claude session** to take effect (there is no `/reload-skills`
+  equivalent); the status line says so.
+
+Source: `Skills/SkillPanelView.swift`, `Skills/PluginPanelView.swift`, `Skills/LoaderLibrary.swift`
 
 ## 13. Claude quick-launch (✨)
 
 Save frequently used project directories via a native folder picker; clicking one runs
 `cd '<dir>' && claude` in the **active pane** (path single-quoted and escaped, so spaces are safe). Entries
 show the folder name with the full path on hover, can be removed individually, and persist in `UserDefaults`.
+The menu lists them A→Z by folder name (`localizedStandardCompare`, so case doesn't matter and `proj2` comes
+before `proj10`); the stored array keeps its insertion order.
 
 Source: `ContentView.swift`
 
