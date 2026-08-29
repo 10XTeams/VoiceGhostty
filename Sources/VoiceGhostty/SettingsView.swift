@@ -19,6 +19,8 @@ struct SettingsView: View {
     @State private var scrollback: String = String(AppSettings.scrollback)
     @State private var saveHistory: Bool = AppSettings.historyEnabled
     @State private var doneSound: Bool = AppSettings.doneSoundEnabled
+    /// Warning shown right after adding folders whose contents a folder already in the list provides
+    @State private var addNotice: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -154,24 +156,31 @@ struct SettingsView: View {
                 sectionTitle(loc("SKILLS & PLUGINS", "技能与插件"))
                 HStack {
                     Text(loc("Loader folders", "加载器文件夹")).font(.callout)
-                    InfoTip(text: loc("Folders the puzzle panel loads from. A folder carrying .claude-plugin/marketplace.json (or plugin.json) is a plugin folder and shows up on the panel's Plugin page; any other folder is a skill library, whose subfolders are skills and whose top-level .md files are agents. Pick several and the panel groups by folder, in this order.",
-                                      "拼图面板从这些文件夹加载。带 .claude-plugin/marketplace.json(或 plugin.json)的算插件文件夹,出现在面板的「插件」页;其余算技能库,子文件夹是技能、顶层 .md 文件是 Agent。可选多个,面板按此顺序分组。"))
+                    InfoTip(text: loc("Folders the puzzle panel loads from. A folder carrying .claude-plugin/ (marketplace.json or plugin.json) is a plugin folder and contributes only its plugins — the skills and agents inside it load with the plugin, so they are not offered separately. Any other folder contributes skills (a folder with SKILL.md, directly here or under skills/) and agents (a .md file with YAML front matter, directly here or under agents/). Add as many folders as you like; the panel puts each kind in its own tab, one group per folder. A name offered by two folders is loaded from the first one in this list — the panel marks the other as a duplicate.",
+                                      "拼图面板从这些文件夹加载。带 .claude-plugin/(marketplace.json 或 plugin.json)的是插件文件夹,只贡献插件 —— 它里面的技能和 Agent 随插件一起加载,不再单独列出。其余文件夹贡献技能(带 SKILL.md 的文件夹,可在本层或 skills/ 下)和 Agent(带 YAML front matter 的 .md 文件,可在本层或 agents/ 下)。可添加任意多个文件夹,面板按类型分成三个页签,每个页签里按文件夹分组。同名项以本列表中靠前的文件夹为准,其余会被标为重名。"))
                     Spacer()
                     Button(loc("Add…", "添加…")) { addSkillDirs() }
                 }
+                let summaries = Self.folderSummaries(skillDirs)
                 ForEach(Array(skillDirs.enumerated()), id: \.element) { index, dir in
-                    let kind = LoaderLibrary.classify(dir)
+                    let summary = summaries[dir]
                     HStack(spacing: 6) {
-                        Image(systemName: kind.isSkillLibrary ? "folder" : "shippingbox")
+                        Image(systemName: summary?.icon ?? "questionmark.folder")
                             .foregroundStyle(.secondary)
                         Text((dir as NSString).abbreviatingWithTildeInPath)
                             .font(.caption).foregroundStyle(.secondary)
                             .lineLimit(1).truncationMode(.middle)
                             .help(dir)
-                        // What it was detected as — added right here, so a folder that lands on the
-                        // wrong page of the 🧩 panel is explained before you go looking for it there
-                        Text(Self.kindLabel(kind))
+                        // What was found in it — right here, so what the 🧩 panel will show is known
+                        // before you go looking for it there
+                        Text(summary?.label ?? loc("does not exist", "不存在"))
                             .font(.caption2).foregroundStyle(.tertiary)
+                        if let duplicates = summary?.duplicates, duplicates > 0 {
+                            Text(loc("· \(duplicates) duplicate", "· \(duplicates) 项重名"))
+                                .font(.caption2).foregroundStyle(.orange)
+                                .help(loc("These names are already provided by a folder listed above, so they cannot be loaded from here. Remove the other folder to load them from this one.",
+                                          "这些名字上面的文件夹已经提供了,无法再从这里加载。想改用这个文件夹,请移除上面那个。"))
+                        }
                         Spacer()
                         Button {
                             removeSkillDir(at: index)
@@ -183,25 +192,54 @@ struct SettingsView: View {
                     }
                 }
                 if skillDirs.isEmpty {
-                    Text(loc("No folder added — the 🧩 panel will only list skills already in the project.",
-                             "没有添加文件夹 —— 🧩 面板只会列出项目里已加载的技能。"))
+                    Text(loc("No folder added — the 🧩 panel will only list what the project already has.",
+                             "没有添加文件夹 —— 🧩 面板只会列出项目里已加载的内容。"))
                         .font(.caption).foregroundStyle(.secondary)
+                }
+                if let notice = addNotice {
+                    Text(notice)
+                        .font(.caption).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
     }
 
-    /// Short badge naming what a loader folder was detected as, with the plugin count where there is one
-    private static func kindLabel(_ kind: LoaderLibrary.Kind) -> String {
+    /// What one added folder contributes, as the row shows it
+    private struct FolderSummary {
+        let icon: String
+        let label: String
+        /// Items a folder listed *above* this one already provides — those cannot be loaded from here
+        let duplicates: Int
+    }
+
+    /// Scan every added folder and count what it offers. Done for the whole list at once because
+    /// "duplicate" is a fact about a folder's position in it: the first folder to offer a name owns it.
+    private static func folderSummaries(_ dirs: [String]) -> [String: FolderSummary] {
         let loc = Loc.shared
-        switch kind {
-        case .skills:
-            return loc("skills / agents", "技能 / Agent")
-        case .marketplace(_, let plugins):
-            return loc("marketplace · \(plugins.count) plugins", "插件市场 · \(plugins.count) 个插件")
-        case .barePlugin:
-            return loc("plugin (no marketplace)", "插件(无 marketplace)")
+        var ownership = LoaderOwnership()
+        var result: [String: FolderSummary] = [:]
+        for scan in LoaderLibrary.scanAll(dirs) {
+            var duplicates = 0
+            for plugin in scan.plugins where ownership.claim(kind: "plugin", key: plugin.name, by: scan.dir) != nil {
+                duplicates += 1
+            }
+            for skill in scan.skills where ownership.claim(kind: "skill", key: skill.name, by: scan.dir) != nil {
+                duplicates += 1
+            }
+            for agent in scan.agents where ownership.claim(kind: "agent", key: agent.fileName, by: scan.dir) != nil {
+                duplicates += 1
+            }
+            var parts: [String] = []
+            if !scan.plugins.isEmpty { parts.append("\(scan.plugins.count) " + loc("plugins", "插件")) }
+            if !scan.skills.isEmpty  { parts.append("\(scan.skills.count) "  + loc("skills", "技能")) }
+            if !scan.agents.isEmpty  { parts.append("\(scan.agents.count) "  + loc("agents", "Agent")) }
+            result[scan.dir] = FolderSummary(icon: scan.plugins.isEmpty ? "folder" : "shippingbox",
+                                             label: parts.isEmpty ? loc("nothing found", "未识别到内容")
+                                                                  : parts.joined(separator: " · "),
+                                             duplicates: duplicates)
         }
+        return result
     }
 
     private func sectionTitle(_ text: String) -> some View {
@@ -249,8 +287,8 @@ struct SettingsView: View {
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
         panel.prompt = loc("Choose", "选择")
-        panel.message = loc("Choose skill library folders (each subfolder under one is a loadable skill)",
-                            "选择技能库文件夹(其下每个子文件夹是一个可加载的技能,可多选)")
+        panel.message = loc("Choose folders to load from — plugins, skills and agents inside are detected automatically",
+                            "选择要加载的文件夹 —— 其中的插件、技能、Agent 会自动识别(可多选)")
         panel.directoryURL = skillDirs.last.map { URL(fileURLWithPath: $0) }
         guard panel.runModal() == .OK else { return }
         let picked = panel.urls.map(\.path).filter { !skillDirs.contains($0) }
@@ -258,6 +296,7 @@ struct SettingsView: View {
         skillDirs += picked
         AppSettings.skillLibraryDirs = skillDirs
         LoaderLibrary.invalidateCache()
+        addNotice = Self.duplicateNotice(for: picked, in: skillDirs)
     }
 
     private func removeSkillDir(at index: Int) {
@@ -265,6 +304,21 @@ struct SettingsView: View {
         skillDirs.remove(at: index)
         AppSettings.skillLibraryDirs = skillDirs
         LoaderLibrary.invalidateCache()
+        addNotice = nil   // The list changed under it, so whatever it said may no longer be true
+    }
+
+    /// Said out loud the moment folders are added, rather than left for the user to find in the 🧩 panel:
+    /// which of the new folders' items are already provided by a folder further up the list, and so will
+    /// not be loadable from the new one.
+    private static func duplicateNotice(for added: [String], in dirs: [String]) -> String? {
+        let loc = Loc.shared
+        let summaries = folderSummaries(dirs)
+        let offenders = added.filter { (summaries[$0]?.duplicates ?? 0) > 0 }
+        guard !offenders.isEmpty else { return nil }
+        let total = offenders.reduce(0) { $0 + (summaries[$1]?.duplicates ?? 0) }
+        let names = offenders.map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")
+        return loc("\(names): \(total) item(s) share a name with something a folder above already provides, and cannot be loaded from here.",
+                   "\(names):有 \(total) 项与上面的文件夹重名,无法从这里加载。")
     }
 }
 

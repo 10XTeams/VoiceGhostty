@@ -20,9 +20,19 @@ struct VoiceGhosttyApp: App {
 /// Menu bar commands — the keyboard shortcuts for tabs / splits / font size / theme / search all live here.
 struct AppCommands: Commands {
     @ObservedObject var store: SessionStore
+    @ObservedObject private var loc = Loc.shared
 
     var body: some Commands {
         // Copy/paste/select-all go through the system default "Edit" menu (SwiftTerm already implements the responder-chain methods)
+
+        // ⌘Q asks before it quits: a terminal window is full of live shells, and the system Quit item
+        // would tear all of them down on a single mistyped keystroke. Replacing the item (rather than
+        // gating `applicationShouldTerminate`) keeps the "closed the last window" path quitting silently —
+        // there, closing *is* the confirmation.
+        CommandGroup(replacing: .appTermination) {
+            Button(loc("Quit VoiceGhostty", "退出 VoiceGhostty")) { AppDelegate.confirmAndQuit() }
+                .keyboardShortcut("q", modifiers: [.command])
+        }
 
         // ★ ⌘W must replace the system "File > Close": when two menu items collide on a shortcut, AppKit picks the
         // one earlier in menu order; "File" comes before "Terminal", so the system Close would steal ⌘W and close the window, quitting the app.
@@ -141,5 +151,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    /// Confirm before quitting. Called from the Quit menu item / ⌘Q — see `AppCommands`.
+    static func confirmAndQuit() {
+        let loc = Loc.shared
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = loc("Quit VoiceGhostty?", "退出 VoiceGhostty？")
+        alert.informativeText = loc("All tabs and splits will be closed, along with anything still running in them.",
+                                    "所有标签页和分屏都会被关闭，其中正在运行的命令也会一并结束。")
+        alert.addButton(withTitle: loc("Quit", "退出"))
+        alert.addButton(withTitle: loc("Cancel", "取消"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        NSApp.terminate(nil)
     }
 }

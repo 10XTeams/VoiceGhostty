@@ -136,24 +136,15 @@ enum AppSettings {
         }
     }
 
-    // MARK: - Skill panel group folding
+    // MARK: - Loader panel section folding
 
-    static let collapsedSkillGroupsKey = "skill-groups-collapsed"
+    static let collapsedLoaderGroupsKey = "loader-groups-collapsed"
 
-    /// Which 🧩 panel groups are folded shut (library path, or "" for the local-only group).
+    /// Which of the 🧩 panel's three sections are folded shut ("plugin" / "skill" / "agent").
     /// Absent = everything expanded, which is the state a first-time panel should open in.
-    static var collapsedSkillGroups: Set<String> {
-        get { Set(defaults.stringArray(forKey: collapsedSkillGroupsKey) ?? []) }
-        set { defaults.set(Array(newValue), forKey: collapsedSkillGroupsKey) }
-    }
-
-    static let collapsedPluginGroupsKey = "plugin-groups-collapsed"
-
-    /// Which groups of the 🧩 panel's Plugin page are folded shut (keyed by marketplace name).
-    /// Kept separate from the skill page's set: the two pages group by different things entirely.
-    static var collapsedPluginGroups: Set<String> {
-        get { Set(defaults.stringArray(forKey: collapsedPluginGroupsKey) ?? []) }
-        set { defaults.set(Array(newValue), forKey: collapsedPluginGroupsKey) }
+    static var collapsedLoaderGroups: Set<String> {
+        get { Set(defaults.stringArray(forKey: collapsedLoaderGroupsKey) ?? []) }
+        set { defaults.set(Array(newValue), forKey: collapsedLoaderGroupsKey) }
     }
 
     /// Drop empties and repeats while keeping the caller's order (the order the panel groups in)

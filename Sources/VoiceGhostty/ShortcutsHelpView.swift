@@ -32,6 +32,7 @@ struct ShortcutsHelpView: View {
                 Item(keys: "⌘⇧] / ⌘⇧[", desc: loc("Next / previous tab", "下一个 / 上一个标签页")),
                 Item(keys: "⌘1…⌘8", desc: loc("Jump to the Nth tab", "跳到第 N 个标签页")),
                 Item(keys: "⌘9", desc: loc("Last tab", "最后一个标签页")),
+                Item(keys: "⌘Q", desc: loc("Quit (asks for confirmation first)", "退出(先弹确认框)")),
             ]),
             Section(title: loc("Splits", "分屏"), items: [
                 Item(keys: "⌘D", desc: loc("Split right", "向右分屏")),

@@ -37,7 +37,7 @@ struct Config {
     /// Local Ollama service address
     var llmLocalURL: String = OllamaClient.defaultBaseURL
 
-    // MARK: Skill dynamic loading (consumed by SkillPanelView.swift)
+    // MARK: Skill dynamic loading (consumed by LoaderPanelView.swift)
     /// Skill library (source) directories: the panel lists each one's subfolders as selectable skills,
     /// one group per directory. Write several in the config file either comma-separated on one
     /// `skill-library-dir` line or by repeating the key; order here is the order of the panel's groups.

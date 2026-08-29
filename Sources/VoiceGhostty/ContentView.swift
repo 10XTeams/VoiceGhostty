@@ -159,8 +159,8 @@ struct ContentView: View {
             } label: {
                 Image(systemName: "puzzlepiece.extension")
             }
-            .help(loc("Dynamic skill loading: checked skills sync to the current directory's .claude/skills",
-                      "动态加载技能:勾选的技能会同步到当前目录的 .claude/skills"))
+            .help(loc("Loader: the folders added in Settings are scanned for plugins, skills and agents, and whatever you check is loaded into the current directory",
+                      "加载器:自动识别设置里添加的文件夹中的插件、技能、Agent,勾选后加载到当前目录"))
 
             claudeMenu
 
@@ -192,6 +192,7 @@ struct ContentView: View {
                 .padding(.top, 44)   // Clear the toolbar so it reads as a dropdown from the trigger button
                 .padding(.trailing, 10)
         }
+        .modifier(ArrowCursor())
     }
 
     private var settingsOverlay: some View {
@@ -202,15 +203,15 @@ struct ContentView: View {
 
     private var skillOverlay: some View {
         floatingPanel(dismiss: { showSkillPanel = false }) {
-            SkillPanelView(currentDirectory: store.activeSession?.currentDirectory,
-                           onDone: { showSkillPanel = false },
-                           runInTerminal: { cmd in
-                               guard let session = store.activeSession else { return }
-                               let view = session.controller.terminalView
-                               view.window?.makeFirstResponder(view)
-                               // Use \r (Enter key) rather than \n: TUIs like claude recognize \r in raw mode
-                               session.controller.type(cmd + "\r")
-                           })
+            LoaderPanelView(currentDirectory: store.activeSession?.currentDirectory,
+                            onDone: { showSkillPanel = false },
+                            runInTerminal: { cmd in
+                                guard let session = store.activeSession else { return }
+                                let view = session.controller.terminalView
+                                view.window?.makeFirstResponder(view)
+                                // Use \r (Enter key) rather than \n: TUIs like claude recognize \r in raw mode
+                                session.controller.type(cmd + "\r")
+                            })
         }
     }
 
@@ -434,5 +435,44 @@ struct ContentView: View {
         store.activeSession?.controller.terminalView.clearSearch()
         searchText = ""
         searchSummary = ""
+    }
+}
+
+// MARK: - Panel cursor
+
+/// Keeps the arrow cursor over an in-window panel, so its buttons are not hovered with a text I-beam.
+///
+/// The panels are SwiftUI overlays drawn above the terminal, but the terminal is a real `NSView` and
+/// AppKit resolves cursor rects per view — a SwiftUI overlay is not one. SwiftTerm claims the terminal's
+/// whole bounds for `.iBeam` (`MacTerminalView.resetCursorRects`), so that claim covers the panel too.
+///
+/// Overriding it is not on the table: SwiftTerm declares `resetCursorRects` and `cursorUpdate` as
+/// `public override`, not `open`, so neither can be overridden from this module. Pushing the cursor while
+/// the pointer is inside the panel is the way in, and it holds: AppKit only re-applies a rect's cursor
+/// when the pointer crosses that rect's boundary, which never happens while moving around inside the
+/// panel — the panel sits well within the terminal's single full-bounds rect.
+private struct ArrowCursor: ViewModifier {
+    /// Push and pop have to pair up exactly, so the pushed state is tracked rather than inferred: an
+    /// unmatched pop unwinds someone else's cursor, and an unmatched push leaves the arrow stuck on.
+    @State private var pushed = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in inside ? push() : pop() }
+            // A panel can be dismissed while the pointer is still inside it, and that is a disappearance,
+            // not a hover-out — without this the push would never be matched.
+            .onDisappear(perform: pop)
+    }
+
+    private func push() {
+        guard !pushed else { return }
+        pushed = true
+        NSCursor.arrow.push()
+    }
+
+    private func pop() {
+        guard pushed else { return }
+        pushed = false
+        NSCursor.pop()
     }
 }
