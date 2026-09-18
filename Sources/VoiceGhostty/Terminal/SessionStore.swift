@@ -51,6 +51,14 @@ final class TerminalSession: ObservableObject, Identifiable {
     /// Transcript file for this pane; nil when history saving is off (decided once, at creation).
     private let logger: SessionLogger?
 
+    /// Context-window reading for the Claude Code session in this pane (empty when claude isn't running).
+    /// Its own observable object, so the status-bar meter can watch it without waking the pane's terminal
+    /// host — see `ClaudeUsageWatcher`.
+    let claudeUsage = ClaudeUsageWatcher()
+
+    /// Auto Clear for this pane (off unless the setting is on) — see `ClaudeAutoClear`.
+    private let autoClear = ClaudeAutoClear()
+
     init(config: Config) {
         controller = TerminalController(config: config)
         logger = AppSettings.historyEnabled ? SessionLogger() : nil
@@ -84,6 +92,26 @@ final class TerminalSession: ObservableObject, Identifiable {
         currentDirectory = dir
         logger?.currentDirectory = dir      // names the transcript file, if it hasn't been created yet
         return true
+    }
+
+    /// Re-read the context size of the Claude Code session in this pane, then let Auto Clear look at the
+    /// screen. Cheap when nothing changed (a directory listing and a stat), and both halves are a no-op
+    /// when the foreground process isn't claude — which is also what takes the meter off screen the moment
+    /// you quit it.
+    ///
+    /// The two are polled together because they need the same answer ("is claude in front of this pane, and
+    /// where?"), which costs a few syscalls worth asking once.
+    func pollClaude() {
+        let directory = controller.claudeWorkingDirectory
+        claudeUsage.refresh(directory: directory)
+        guard directory != nil, AppSettings.autoClearEnabled else { return }
+        // The reading is the one from claude's last completed request — see `ClaudeUsageWatcher`. That is
+        // the same response the marker was printed in, or the one before it; either way it is the size the
+        // clear is being asked about.
+        autoClear.evaluate(terminal: controller.terminal,
+                           tokens: claudeUsage.usage?.tokens) { [weak self] text in
+            self?.controller.type(text)
+        }
     }
 
     // MARK: - Transcript
@@ -411,6 +439,11 @@ final class SessionStore: ObservableObject {
     private var tickCount = 0
     private let historyFlushEvery = 10
 
+    /// Claude Code's context reading — and with it the Auto Clear scan — is refreshed every
+    /// `claudeUsageEvery` ticks (~2s). The transcript only gains a record per completed request, so polling
+    /// it faster would just stat the same file again.
+    private let claudeUsageEvery = 4
+
     init() {
         let cfg = Config.load()
         config = cfg
@@ -435,6 +468,7 @@ final class SessionStore: ObservableObject {
         let activeID = activeSession?.id
         tickCount += 1
         let flushHistory = tickCount % historyFlushEvery == 0
+        let refreshUsage = tickCount % claudeUsageEvery == 0
         var titleChanged = false
         for tab in tabs {
             var changed = false
@@ -453,6 +487,9 @@ final class SessionStore: ObservableObject {
                 // Update cwd → the tab name changes accordingly
                 if pane.refreshDirectory() { changed = true; titleChanged = true }
                 if flushHistory { pane.flushHistory() }
+                // Deliberately outside the `changed` bookkeeping: the meter observes the pane's watcher
+                // directly, so a moved token count must not wake the tab (and its chips) as well.
+                if refreshUsage { pane.pollClaude() }
             }
             // Panes are nested ObservableObjects, so a status/cwd change has to be announced by hand for
             // the tab's dot and title to redraw. Announce it on the *tab*, never on the store: the store

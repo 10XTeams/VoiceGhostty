@@ -46,6 +46,18 @@ struct ContentView: View {
                 claudeOverlay
             }
         }
+        // Auto Clear types into the terminal on its own; the strip says so, so a pane that suddenly
+        // cleared itself is never a mystery. See `ClaudeAutoClear`.
+        .onReceive(NotificationCenter.default.publisher(for: .claudeAutoClearFired)) { _ in
+            let message = loc("Auto Clear: sent \(ClaudeAutoClear.clearCommand), then \(ClaudeAutoClear.followUpCommand)",
+                              "Auto Clear:已发送 \(ClaudeAutoClear.clearCommand),随后 \(ClaudeAutoClear.followUpCommand)")
+            statusText = message
+            // Retire it on its own: it reports something that already happened, and the strip's other
+            // messages are all about what you are doing right now.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                if statusText == message { statusText = "" }
+            }
+        }
         .onAppear {
             speech.onFinalResult = { text in handleRecognized(text) }
             // Push-to-talk: press to record, release to stop
@@ -331,19 +343,27 @@ struct ContentView: View {
     private var statusBar: some View {
         // One line, always exactly one line: a message long enough to wrap would resize the terminal just
         // as surely as the bar appearing does, so it truncates and keeps the full text in the tooltip.
-        Group {
-            if let err = speech.errorMessage {
-                Text(err).foregroundStyle(.red).help(err)
-            } else if !statusText.isEmpty {
-                Text(statusText).foregroundStyle(.secondary).help(statusText)
-            } else {
-                Text(" ")   // Holds the row's height open so the terminal never changes size
+        HStack(spacing: 10) {
+            Group {
+                if let err = speech.errorMessage {
+                    Text(err).foregroundStyle(.red).help(err)
+                } else if !statusText.isEmpty {
+                    Text(statusText).foregroundStyle(.secondary).help(statusText)
+                } else {
+                    Text(" ")   // Holds the row's height open so the terminal never changes size
+                }
+            }
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Context meter for the active pane, on the trailing edge. Its own view observing its own
+            // watcher, so a moved token count repaints this strip and nothing else.
+            if let session = store.activeSession {
+                ClaudeContextMeter(watcher: session.claudeUsage)
             }
         }
         .font(.caption)
-        .lineLimit(1)
-        .truncationMode(.tail)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(.bar)
@@ -474,5 +494,60 @@ private struct ArrowCursor: ViewModifier {
         guard pushed else { return }
         pushed = false
         NSCursor.pop()
+    }
+}
+
+
+/// Context-window usage of the Claude Code session in the active pane: a bar, the numbers, and nothing
+/// at all when claude isn't running there.
+///
+/// The reading comes from claude's own transcript and therefore lags the live session by one request —
+/// it is the size the *last* request carried, which is what the next one starts from.
+private struct ClaudeContextMeter: View {
+    @ObservedObject var watcher: ClaudeUsageWatcher
+    @ObservedObject private var loc = Loc.shared
+
+    /// Warn before the window is a problem, not once it already is: compaction lands around 90%, so
+    /// orange is the "plan the next prompt" band and red the "it is about to compact" one.
+    private func tint(_ fraction: Double) -> SwiftUI.Color {
+        if fraction >= 0.9 { return .red }
+        if fraction >= 0.7 { return .orange }
+        return .secondary
+    }
+
+    var body: some View {
+        if let usage = watcher.usage {
+            let color = tint(usage.fraction)
+            HStack(spacing: 6) {
+                Text("claude").foregroundStyle(.tertiary)
+                Capsule()
+                    .fill(.quaternary)
+                    .frame(width: 42, height: 4)
+                    .overlay(alignment: .leading) {
+                        Capsule()
+                            .fill(color)
+                            .frame(width: max(2, 42 * usage.fraction), height: 4)
+                    }
+                Text("\(usage.short) · \(usage.percent)%")
+                    .foregroundStyle(color)
+                    .monospacedDigit()
+            }
+            .lineLimit(1)
+            .fixedSize()
+            .help(tooltip(usage))
+        }
+    }
+
+    private func tooltip(_ usage: ClaudeContextUsage) -> String {
+        var lines = [
+            loc("Context: \(usage.tokens) / \(usage.limit) tokens (\(usage.percent)%)",
+                "上下文:\(usage.tokens) / \(usage.limit) tokens(\(usage.percent)%)"),
+            loc("As of claude's last request — a request in flight isn't counted yet.",
+                "统计到 claude 上一次请求 —— 正在进行的那次还没计入。"),
+        ]
+        if let model = usage.model { lines.append(loc("Model: ", "模型:") + model) }
+        if let session = usage.sessionID { lines.append(loc("Session: ", "会话:") + session) }
+        lines.append(usage.transcript)
+        return lines.joined(separator: "\n")
     }
 }

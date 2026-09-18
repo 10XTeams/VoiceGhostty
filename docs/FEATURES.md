@@ -240,7 +240,79 @@ Settings; on by default.
 
 Source: `Terminal/SessionLogger.swift`, `Terminal/SessionStore.swift`
 
-## 12. Claude Code loader (🧩)
+## 12. Claude context usage
+
+While a pane is running claude, the right end of the status bar shows how full its context window is: a thin
+bar plus `111K / 1M · 11%`. It disappears the moment claude exits.
+
+The numbers are **not scraped off the screen** — they come from claude's own record. Claude Code appends one
+JSON object per record to `~/.claude/projects/<cwd with / turned into ->/<session-id>.jsonl`, and every
+assistant record carries that request's `usage`. Context = `input + cache_creation + cache_read + output`
+(`cache_read` dominates it, and it is still context).
+
+- **Free and unintrusive.** No extra API call, no cooperation needed from claude, and nothing to break when
+  claude changes what its screen looks like — it changes the screen, not this file.
+- **One request behind.** The record is written once the response completes, so **a request in flight is not
+  counted yet**.
+- **Recognising claude.** `tcgetpgrp` on the pty primary gives the foreground process group; `proc_pidpath`
+  then says whether its executable path contains "claude". The native installer execs
+  `~/.local/share/claude/versions/<version>`, so the process *name* is a bare version number ("2.1.276") and
+  only the path still carries the clue. The working directory is asked of that process too, not of the shell.
+  An npm/node install execs "node" and is not recognised.
+- **The window comes from the model identity.** A `[1m]` suffix in the transcript's model attachment
+  (`claude-opus-5[1m]`) means 1M, otherwise 200K. A reading that overflows the assumed window is itself proof
+  of a long-context model we do not know — believe the tokens rather than pinning the bar at 100%.
+- **Read incrementally, the same way the history file is written.** The first poll parses the whole transcript
+  (the model identity lives near the top); after that only the appended bytes are read, and a record claude is
+  still writing waits for the next poll. Subagent turns (`isSidechain`) are excluded — they burn their own window.
+- **Every 2 s** (every 4th status tick). Colors: gray below 70%, orange 70–90%, red above 90%.
+- Two panes running claude in the same project read the **same file** (the most recently written one): the
+  transcript names no pid, so there is nothing to match a session to a pane by. The tooltip names the session
+  id and the file, so a reading is at least attributable.
+- It is its own `ObservableObject` rather than a `@Published` on the pane: the pane is observed by `PaneView`,
+  which hosts the terminal, so publishing from there would wake a terminal host every time a token count moved.
+
+Source: `Terminal/ClaudeUsageWatcher.swift`, `Terminal/TerminalController.swift`, `ContentView.swift`
+
+## 13. Auto Clear (opt-in)
+
+When claude says it is ready to be cleared, clear it and start the next piece of work — the "hand over, turn
+the page, carry on" loop you run when the context is nearly full, without sitting there to press Return.
+
+It acts only when all four hold:
+
+1. **Auto Clear** is on in Settings (**off by default**);
+2. claude is that pane's foreground process;
+3. the context reading in the status bar is **above 150K tokens** — clearing a roomy window just throws it away;
+4. claude's output currently shows `***Clear Ready***`.
+
+Then it types `/clear` ⏎ … `/Opera:next` ⏎.
+
+- **The marker is matched loosely on purpose.** Claude Code renders markdown, so `***Clear Ready***` may reach
+  the screen as styled text with the asterisks gone. Matching strips `*`, folds whitespace and lowercases, which
+  catches both spellings — while "ready to clear" or "Running /clear now" still do not match.
+- **The screen is the source of truth, not the pty stream** — the same reasoning as the history file: by the time
+  a line is in the buffer, SwiftTerm has applied every escape sequence, so a marker split across reads or painted
+  in pieces is one ordinary line here.
+- **One marker fires once.** Firing disarms it until a scan finds the marker gone (which `/clear` itself brings
+  about), and nothing may fire twice within 30 s — the failure to avoid is a pane that clears itself in a loop.
+- **Only the current screen is scanned** (plus ten lines of slack for what scrolled off between polls), never the
+  history — otherwise the previous round's marker would keep turning up.
+- **The keys are typed in steps, not pasted in one burst.** 0.4 s between a command and its Return: claude filters
+  its command menu as you type, and a Return in the same breath can be taken by whatever the menu had highlighted
+  a moment earlier. `/clear` gets 1.5 s to land before the next command. Return is `\r`, which is what a terminal
+  sends for the Return key — claude reads keys itself and never sees the line discipline that would accept `\n`.
+- **The status bar says when it fired** (and retires the message after 8 s), so a pane that suddenly cleared
+  itself is never a mystery.
+- The context reading trails by one request (see the previous section), so the size it judges is the one the
+  reply carrying the marker had, or the one before it.
+
+This is the **only** place in the app that presses Return for you. Both voice paths stop at the cursor and leave
+Return to you (see § 4, Safety model) — which is why this is off until you turn it on.
+
+Source: `Terminal/ClaudeAutoClear.swift`, `Terminal/SessionStore.swift`, `Config/AppSettings.swift`
+
+## 14. Claude Code loader (🧩)
 
 One panel, **three tabs — Skill / Agent / Plugin**. A folder added in Settings is never asked *what it is*,
 only *what it has*, so the same folder can contribute its skills, its agents and its plugin at once, each
@@ -251,7 +323,7 @@ another, **Apply commits every tab at once**, and each tab's title carries its i
 tab is worth visiting. An empty tab explains which marker the added folders are missing rather than
 disappearing.
 
-### 12.1 What a folder is scanned for
+### 14.1 What a folder is scanned for
 
 Scanning is per kind (`Skills/LoaderLibrary.swift`), reading the same markers Claude Code itself reads:
 
@@ -273,7 +345,7 @@ Scanning is per kind (`Skills/LoaderLibrary.swift`), reading the same markers Cl
 - Settings prints what each folder yielded next to it (`1 plugins · 18 skills · 22 agents`), so what the
   panel will show is visible where the folder was added.
 
-### 12.2 One name, one folder
+### 14.2 One name, one folder
 
 A skill, an agent and a plugin each end up under a single project-wide name (`.claude/skills/<name>`,
 `.claude/agents/<name>.md`, one `enabledPlugins` key), so two folders offering the same name cannot both be
@@ -282,7 +354,7 @@ name gets a disabled row badged *duplicate*, whose tooltip names the folder that
 panel heads the list with a count of what it skipped, and Settings flags the offending folder the moment it
 is added — no silent coin toss, and nothing overwritten.
 
-### 12.3 Applying
+### 14.3 Applying
 
 - **Skills and agents** are copied into `cwd/.claude/skills/` and `cwd/.claude/agents/`; unchecking deletes
   that one item and touches nothing else. Existing targets are never overwritten, and per-item failures are
@@ -305,7 +377,7 @@ is added — no silent coin toss, and nothing overwritten.
 - Items already in the project that no added folder offers are still listed (checked), so something left
   behind by a folder since removed stays switchable; unchecking removes it for good.
 
-### 12.4 The list itself
+### 14.4 The list itself
 
 - Items are pre-checked when they are already loaded in the project.
 - **One group per folder** inside each tab, in the Settings order, headed by the folder's name (the full path
@@ -323,7 +395,7 @@ is added — no silent coin toss, and nothing overwritten.
 
 Source: `Skills/LoaderPanelView.swift`, `Skills/LoaderLibrary.swift`, `Skills/ClaudePluginStore.swift`
 
-## 13. Claude quick-launch (✨)
+## 15. Claude quick-launch (✨)
 
 Save frequently used project directories via a native folder picker; clicking one runs
 `cd '<dir>' && claude` in the **active pane** (path single-quoted and escaped, so spaces are safe). Entries
@@ -333,7 +405,7 @@ before `proj10`); the stored array keeps its insertion order.
 
 Source: `ContentView.swift`
 
-## 14. Settings panel (⚙️)
+## 16. Settings panel (⚙️)
 
 One gear button, two tabs — editable settings and the full shortcut reference.
 
@@ -343,6 +415,7 @@ One gear button, two tabs — editable settings and the full shortcut reference.
 | Add punctuation | Whether dictation is punctuated. On by default; applies to the next thing you say. |
 | Command input color | Color picker; mirrored to `~/.config/voiceghostty/input-color` and picked up live by the zsh hook in every open tab. |
 | Scrollback lines | 500–200 000, <kbd>Return</kbd> to apply. Reaches panes that are already open; an out-of-range or unparseable value snaps to what was actually stored, so the field always shows the truth. |
+| Auto Clear | When a pane's claude prints `***Clear Ready***` with the context above 150K, types `/clear` ⏎ and `/Opera:next` ⏎ for you. Off by default; see § 13. |
 | Save every session to a file | Session history on/off, plus the folder path and an **Open** button. Applies to panes opened from then on — the decision is made when a pane is created. |
 | Skill library folders | The source directories the 🧩 panel lists skills from — **Add…** takes several folders at once, each row removes itself, and the panel groups by folder in this order. Removing every row is allowed and sticks — with no library, the 🧩 panel lists only the skills already in the project. |
 
@@ -354,7 +427,7 @@ not native popovers — so they can never spill past the window edge, and clicki
 
 Source: `SettingsView.swift`, `ShortcutsHelpView.swift`, `Config/AppSettings.swift`, `ContentView.swift`
 
-## 15. Bilingual UI
+## 17. Bilingual UI
 
 Every user-facing string carries both languages inline — `loc("Done", "完成")` — so there is no string table to
 keep in sync. Views observe a shared `Loc` object, so switching the language in Settings re-renders the whole UI
@@ -362,7 +435,7 @@ immediately, in lockstep with the recognition language.
 
 Source: `Config/Loc.swift`
 
-## 16. Configuration file
+## 18. Configuration file
 
 `~/.config/voiceghostty/config`, minimal `key = value`, `#` comments, unknown keys and malformed lines ignored
 (never an error). **13 keys:**
@@ -385,7 +458,7 @@ Source: `Config/Loc.swift`
 
 Source: `Config/Config.swift`
 
-## 17. App & window behavior
+## 19. App & window behavior
 
 - The bottom status strip is always in the layout, empty or not, and never wraps past one line (long text
   truncates, the tooltip holds all of it). A strip that appeared and disappeared with each message — or grew
@@ -401,7 +474,7 @@ Source: `Config/Config.swift`
 
 Source: `VoiceGhosttyApp.swift`, `make-app.sh`, `Resources/Info.plist`
 
-## 18. Keyboard shortcuts
+## 20. Keyboard shortcuts
 
 | Keys | Action |
 |---|---|

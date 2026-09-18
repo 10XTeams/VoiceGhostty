@@ -14,6 +14,19 @@ func processCurrentDirectory(_ pid: pid_t) -> String? {
     }
 }
 
+/// Executable path of a process (`proc_pidpath`), used to recognise what a pane is running.
+///
+/// Deliberately the *path* and not `proc_name`: the native Claude Code installer execs
+/// `~/.local/share/claude/versions/<version>`, so the process name is a bare version number ("2.1.276")
+/// while the path still says "claude". (`ps -o comm` shows argv[0], which is why it prints "claude" and
+/// the name lookup does not.)
+func processExecutablePath(_ pid: pid_t) -> String? {
+    guard pid > 0 else { return nil }
+    var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+    guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+    return String(cString: buffer)
+}
+
 /// A subclass of LocalProcessTerminalView:
 /// - The click callback (onFocus) lets SessionStore sync the "active split"
 /// - PTY output (onOutput) / terminal bell (onBell) callbacks are used to judge "busy/done" status
@@ -30,6 +43,66 @@ final class FocusReportingTerminalView: LocalProcessTerminalView {
     override func mouseDown(with event: NSEvent) {
         onFocus?()
         super.mouseDown(with: event)
+    }
+
+    /// Send plain keyboard/IME text straight to the pty when the foreground app has enabled the kitty
+    /// keyboard protocol without `report-all-keys`.
+    ///
+    /// SwiftTerm encodes *every* `insertText` as a kitty CSI-u event once an app requests
+    /// `report-alternates` (flag 0b100), and drops the associated text while doing so — text only rides
+    /// along when `report-all-keys` is set too. For a key whose base-layout glyph differs from what the
+    /// IME committed, the character is then lost outright.
+    ///
+    /// A Chinese IME commits full-width punctuation (，。？！；：、《》…) directly, with no candidate
+    /// window, so the key event still describes the physical key: `charactersIgnoringModifiers` is "，"
+    /// while the ASCII base layout for keyCode 43 is ",". SwiftTerm sees a base-layout alternate, emits
+    /// `CSI 65292:…;…u` carrying no text, and the receiving app — which only knows ASCII key codes —
+    /// discards it. Han characters are unaffected: they arrive through the composition-commit path,
+    /// which has no key event behind it and therefore no alternates.
+    ///
+    /// Claude Code negotiates exactly these flags (`CSI > 5 u` = disambiguate | report-alternates),
+    /// which is why full-width punctuation vanished inside it yet typed fine at the shell prompt — zsh
+    /// never enables the protocol, so input took SwiftTerm's ordinary `send(txt:)` path.
+    ///
+    /// Per the kitty spec, text-producing keys keep being sent as plain UTF-8 unless `report-all-keys`
+    /// is set; `report-alternates` only enriches events that were already escape-encoded. Bypassing
+    /// SwiftTerm here restores that behaviour rather than papering over it. Pastes are untouched — they
+    /// go through SwiftTerm's internal `isPaste: true` entry point, not this override.
+    private func shouldBypassKittyEncoding(_ text: String) -> Bool {
+        let flags: KittyKeyboardFlags = terminal?.keyboardEnhancementFlags ?? KittyKeyboardFlags()
+        guard !flags.isEmpty, !flags.contains(.reportAllKeys), !text.isEmpty else { return false }
+        // C0/C1 scalars keep their normal encoding; only printable text takes the fast path.
+        guard !text.unicodeScalars.contains(where: { $0.value < 0x20 || (0x7F ... 0x9F).contains($0.value) }) else {
+            return false
+        }
+        // Control/Command chords are keys, not text, and stay with SwiftTerm's encoder.
+        let modifiers = NSApp.currentEvent?.modifierFlags ?? []
+        return !modifiers.contains(.control) && !modifiers.contains(.command)
+    }
+
+    /// Normalize IME input to `NSString` before SwiftTerm sees it.
+    ///
+    /// `NSTextInputClient.insertText` may be handed either an `NSString` or an `NSAttributedString`,
+    /// but SwiftTerm's implementation is a bare `if let str = string as? NSString` — an attributed
+    /// string falls off the end and the characters are dropped without a trace.
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        let text = (string as? NSAttributedString)?.string ?? (string as? String)
+
+        if let text, shouldBypassKittyEncoding(text) {
+            // `super.insertText` is what normally retires the composition: it drops the marked-text
+            // storage and takes the underlined preedit overlay off screen. Skipping it would leave the
+            // pinyin the IME had shown ("zhong") floating over the terminal after the Han characters
+            // were already committed, until the *next* composition happened to redraw the overlay.
+            unmarkText()
+            send(txt: text)
+            return
+        }
+
+        if let attributed = string as? NSAttributedString {
+            super.insertText(attributed.string as NSString, replacementRange: replacementRange)
+        } else {
+            super.insertText(string, replacementRange: replacementRange)
+        }
     }
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
@@ -81,6 +154,29 @@ final class TerminalController: NSObject, ObservableObject, LocalProcessTerminal
         var attrs = termios()
         guard tcgetattr(fd, &attrs) == 0 else { return nil }
         return attrs.c_lflag & tcflag_t(ICANON) == 0
+    }
+
+    /// pid of the pty's foreground process group — whatever currently owns the keyboard. The pty primary
+    /// answers `tcgetpgrp` on behalf of the secondary, the same way it answers `tcgetattr` above.
+    var foregroundPID: pid_t? {
+        guard let fd = terminalView.process?.childfd, fd >= 0 else { return nil }
+        let pgid = tcgetpgrp(fd)
+        return pgid > 0 ? pgid : nil
+    }
+
+    /// The directory a Claude Code session is running in inside this pane, or nil when the foreground
+    /// process is something else (a shell prompt, vim, a build).
+    ///
+    /// Asks the foreground process itself rather than the shell: identical in the ordinary `cd x && claude`
+    /// case (a TUI does not chdir, and the shell keeps the directory it launched from), but still right when
+    /// claude was started from a subshell. A tool call claude makes does not disturb this — it spawns its
+    /// children without a pty of their own, so the foreground process group stays claude's.
+    var claudeWorkingDirectory: String? {
+        guard let pid = foregroundPID, let path = processExecutablePath(pid) else { return nil }
+        // Matches the native install path (…/.local/share/claude/versions/<v>) and a plain `claude`
+        // binary alike. An npm/node install execs "node", which this does not recognise.
+        guard path.lowercased().contains("claude") else { return nil }
+        return processCurrentDirectory(pid)
     }
 
     /// Fired when SwiftUI tears down the representable hosting this pane — see `TerminalHostView`.

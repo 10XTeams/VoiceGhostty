@@ -19,6 +19,7 @@ struct SettingsView: View {
     @State private var scrollback: String = String(AppSettings.scrollback)
     @State private var saveHistory: Bool = AppSettings.historyEnabled
     @State private var doneSound: Bool = AppSettings.doneSoundEnabled
+    @State private var autoClear: Bool = AppSettings.autoClearEnabled
     /// Warning shown right after adding folders whose contents a folder already in the list provides
     @State private var addNotice: String?
 
@@ -127,6 +128,18 @@ struct SettingsView: View {
                         }
                     InfoTip(text: loc("Plays a sound when a pane finishes (command finished — your turn). With shell integration active it rings only for a finish the program announces — a bell, or the shell reporting the command ended — so an interactive app that just goes quiet for a moment turns its light green without making a sound, and a long task can't ring every few seconds while it works. Without shell integration a pause in the output is the only signal there is, so it rings on that. The pane you are typing in stays silent while VoiceGhostty is in front; send the app to the background and it reports its finish like any other pane. At most one chime every few seconds.",
                                       "分屏跑完(该你了)时响一声。启用了 shell 集成时,只认程序明确宣告的完成 —— 终端响铃,或 shell 报告命令结束 —— 所以交互式程序只是安静了一会儿的话,灯会转绿但不出声,免得一个长任务在干活期间每隔几秒响一次。没有 shell 集成时,输出停顿是唯一的信号,那就按停顿来响。VoiceGhostty 在前台时,你正在输入的那个分屏不会响;切到别的应用后,它和其他分屏一样会报告完成。每几秒最多响一次。"))
+                    Spacer()
+                }
+            }
+
+            // Claude
+            VStack(alignment: .leading, spacing: 6) {
+                sectionTitle(loc("CLAUDE", "CLAUDE"))
+                HStack(spacing: 6) {
+                    Toggle(loc("Auto Clear", "Auto Clear"), isOn: $autoClear)
+                        .onChange(of: autoClear) { AppSettings.autoClearEnabled = $0 }
+                    InfoTip(text: loc("When a pane running claude prints ***Clear Ready*** and its context is over \(ClaudeAutoClear.tokenThreshold / 1000)K tokens, VoiceGhostty types \(ClaudeAutoClear.clearCommand), Return, \(ClaudeAutoClear.followUpCommand), Return for you. The context figure is the one in the status bar, so it is claude's last completed request — a reply still streaming is not counted yet. One marker can only fire once: it re-arms when the marker leaves the screen, and never fires twice within \(Int(ClaudeAutoClear.cooldownSeconds))s. This is the only place VoiceGhostty presses Return on your behalf, which is why it is off by default.",
+                                      "当分屏里的 claude 输出 ***Clear Ready***,且上下文超过 \(ClaudeAutoClear.tokenThreshold / 1000)K tokens 时,VoiceGhostty 替你输入 \(ClaudeAutoClear.clearCommand) 回车、再输入 \(ClaudeAutoClear.followUpCommand) 回车。上下文取的是状态栏那个数,也就是 claude 上一次完成的请求 —— 正在输出的那次还没计入。同一个标记只会触发一次:标记从屏幕上消失后才重新待命,且 \(Int(ClaudeAutoClear.cooldownSeconds)) 秒内绝不二次触发。这是全 App 唯一替你按回车的地方,所以默认关闭。"))
                     Spacer()
                 }
             }

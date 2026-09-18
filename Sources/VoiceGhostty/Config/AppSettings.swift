@@ -66,6 +66,20 @@ enum AppSettings {
         set { defaults.set(newValue, forKey: historyEnabledKey) }
     }
 
+    // MARK: - Auto Clear
+
+    static let autoClearEnabledKey = "auto-clear"
+
+    /// Whether a pane running Claude Code may clear itself when claude says it is ready to be cleared.
+    ///
+    /// Off by default, and deliberately so: it is the one path in this app that presses Return for you.
+    /// Everything else — dictation, natural language — stops at the cursor and waits for you (see the
+    /// safety model). See `ClaudeAutoClear` for what it takes to fire.
+    static var autoClearEnabled: Bool {
+        get { defaults.object(forKey: autoClearEnabledKey) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: autoClearEnabledKey) }
+    }
+
     // MARK: - Command input color
 
     static let inputColorKey = "input-color"
