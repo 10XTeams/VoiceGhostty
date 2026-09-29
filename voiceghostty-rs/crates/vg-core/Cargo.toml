@@ -1,0 +1,15 @@
+[package]
+name = "vg-core"
+description = "VoiceGhostty 核心逻辑:配置、主题、自然语言→命令、shell 集成(无 GUI 依赖)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
+log.workspace = true
+reqwest.workspace = true

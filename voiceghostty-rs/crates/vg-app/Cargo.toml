@@ -1,0 +1,22 @@
+[package]
+name = "vg-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "voiceghostty"
+path = "src/main.rs"
+
+[dependencies]
+vg-core.workspace = true
+vg-voice.workspace = true
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true
+eframe = "0.36"
+alacritty_terminal = "0.26"
+egui = "0.36"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"

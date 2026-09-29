@@ -1,0 +1,18 @@
+[package]
+name = "vg-voice"
+description = "VoiceGhostty 语音:麦克风采集(cpal)+ 可插拔识别引擎(HTTP / 外部命令)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vg-core.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+reqwest.workspace = true
+cpal = "0.15"
+hound = "3.5"
+tempfile = "3"

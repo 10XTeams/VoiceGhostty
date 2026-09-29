@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = ["crates/vg-core", "crates/vg-voice", "crates/vg-app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+vg-core = { path = "crates/vg-core" }
+vg-voice = { path = "crates/vg-voice" }
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+log = "0.4"
+env_logger = "0.11"
+# blocking + rustls: 没有 tokio 运行时也能用,且不依赖系统 OpenSSL(跨平台)
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "multipart"] }
