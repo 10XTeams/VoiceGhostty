@@ -4,7 +4,12 @@ use std::time::{Duration, Instant};
 
 use egui::{Color32, Key, KeyboardShortcut, Modifiers, RichText};
 
-use vg_core::{Config, Settings, Theme, VoiceEngineKind};
+use std::sync::atomic::Ordering;
+
+use vg_core::claude_usage::ContextUsage;
+use vg_core::{Config, SessionStatus, Settings, Theme, VoiceEngineKind};
+
+use crate::monitor::Monitor;
 
 use crate::pipeline::{Pipeline, PipelineEvent, VoiceMode};
 use crate::ptt::PttAction;
@@ -34,6 +39,7 @@ pub struct VoiceGhosttyApp {
     status: Status,
     font_size: f32,
     show_settings: bool,
+    monitor: Monitor,
 }
 
 /// 应用快捷键的修饰键:macOS 用 ⌘;其他平台用 Ctrl+Shift(单 Ctrl 组合要留给终端,如 Ctrl+T/W)
@@ -49,7 +55,9 @@ pub fn effective_config(settings: &Settings) -> Config {
 
 impl VoiceGhosttyApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> VoiceGhosttyApp {
+        crate::monitor::clean_stale_state_files();
         let settings = Settings::load();
+        let settings_done_sound = settings.done_sound;
         let config = effective_config(&settings);
         crate::fonts::install(&cc.egui_ctx, &config.font_family);
         apply_visuals(&cc.egui_ctx, &config.theme());
@@ -71,6 +79,7 @@ impl VoiceGhosttyApp {
             pipeline: Pipeline::new(),
             status: Status::default(),
             show_settings: false,
+            monitor: Monitor::start(cc.egui_ctx.clone(), settings_done_sound),
         };
         app.new_tab(&cc.egui_ctx);
         app
@@ -81,6 +90,7 @@ impl VoiceGhosttyApp {
         let size = GridSize { cols: 80, rows: 24, cell_w: 8, cell_h: 16 };
         match TerminalSession::spawn(ctx, size, self.config.scrollback, &self.settings, self.next_id) {
             Ok(session) => {
+                self.monitor.watch(&session.shared);
                 self.next_id += 1;
                 self.tabs.push(Tab { session, input: InputState::default() });
                 self.active = self.tabs.len() - 1;
@@ -201,9 +211,9 @@ impl VoiceGhosttyApp {
         ui.horizontal(|ui| {
             let mut close = None;
             for (i, tab) in self.tabs.iter().enumerate() {
-                let title = if tab.session.title.is_empty() { "shell".into() } else { tab.session.title.clone() };
-                let label = format!("{} {}", i + 1, truncate(&title, 24));
-                let r = ui.selectable_label(i == self.active, label);
+                let label = format!("{} {}", i + 1, truncate(&tab.session.display_name(), 24));
+                status_dot(ui, tab.session.shared.status());
+                let r = ui.selectable_label(i == self.active, label).on_hover_text(&tab.session.title);
                 if r.clicked() {
                     self.active = i;
                 }
@@ -254,9 +264,13 @@ impl VoiceGhosttyApp {
                 ui.label(RichText::new(&self.status.text).color(color));
             }
 
+            let usage = self.tabs.get(self.active).and_then(|t| t.session.shared.usage());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("⚙").on_hover_text("设置").clicked() {
                     self.show_settings = !self.show_settings;
+                }
+                if let Some(usage) = usage {
+                    claude_meter(ui, &usage);
                 }
             });
         });
@@ -295,6 +309,24 @@ impl VoiceGhosttyApp {
                 let mut punct = self.config.voice.punctuation;
                 if ui.checkbox(&mut punct, "").changed() {
                     self.settings.adds_punctuation = Some(punct);
+                    changed = true;
+                }
+                ui.end_row();
+
+                ui.label("完成提示音");
+                ui.horizontal(|ui| {
+                    if ui.checkbox(&mut self.settings.done_sound, "").changed() {
+                        self.monitor.chime_enabled.store(self.settings.done_sound, Ordering::Relaxed);
+                        changed = true;
+                    }
+                    if ui.small_button("试听").clicked() {
+                        vg_voice::chime::play();
+                    }
+                });
+                ui.end_row();
+
+                ui.label("保存会话记录");
+                if ui.checkbox(&mut self.settings.save_history, "").on_hover_text("对之后新开的窗格生效").changed() {
                     changed = true;
                 }
                 ui.end_row();
@@ -342,10 +374,21 @@ impl VoiceGhosttyApp {
 }
 
 impl eframe::App for VoiceGhosttyApp {
+    /// 退出时把各窗格屏幕上剩下的行写进记录(窗格 drop 时完成),并挂断 shell
+    fn on_exit(&mut self) {
+        self.tabs.clear();
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.handle_shortcuts(&ctx);
         self.pump(&ctx);
+
+        // 你正盯着的窗格保持灰色;窗口到后台后它恰恰是最值得报告的那个,于是让它照常推进
+        let window_focused = ctx.input(|i| i.focused);
+        for (i, tab) in self.tabs.iter().enumerate() {
+            tab.session.shared.neutral.store(window_focused && i == self.active, Ordering::Relaxed);
+        }
 
         if let Some(tab) = self.tabs.get(self.active) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("{} — VoiceGhostty", tab.session.title)));
@@ -399,4 +442,49 @@ fn truncate(s: &str, n: usize) -> String {
     } else {
         s.chars().take(n - 1).chain(std::iter::once('…')).collect()
     }
+}
+
+fn status_dot(ui: &mut egui::Ui, status: SessionStatus) {
+    let color = match status {
+        SessionStatus::Normal => Color32::from_gray(110),
+        SessionStatus::Busy => Color32::from_rgb(230, 190, 40),
+        SessionStatus::Done => Color32::from_rgb(70, 200, 90),
+    };
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
+    ui.painter().circle_filled(rect.center(), 4.0, color);
+}
+
+/// 当前窗格里 Claude Code 的上下文占用:进度条 + 数字。70% 起橙、90% 起红(压缩大约在 90% 发生)
+fn claude_meter(ui: &mut egui::Ui, usage: &ContextUsage) {
+    let fraction = usage.fraction() as f32;
+    let color = if fraction >= 0.9 {
+        Color32::from_rgb(230, 80, 80)
+    } else if fraction >= 0.7 {
+        Color32::from_rgb(240, 150, 50)
+    } else {
+        ui.visuals().weak_text_color()
+    };
+    let mut tip = format!(
+        "上下文:{} / {} tokens({}%)\n统计到 claude 上一次请求 —— 正在进行的那次还没计入。",
+        usage.tokens,
+        usage.limit,
+        usage.percent()
+    );
+    if let Some(m) = &usage.model {
+        tip.push_str(&format!("\n模型:{m}"));
+    }
+    if let Some(s) = &usage.session_id {
+        tip.push_str(&format!("\n会话:{s}"));
+    }
+    tip.push_str(&format!("\n{}", usage.transcript.display()));
+
+    // right_to_left 布局:先加的在右边
+    ui.label(RichText::new(format!("{} · {}%", usage.short(), usage.percent())).color(color).monospace())
+        .on_hover_text(&tip);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(42.0, 4.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 2.0, ui.visuals().faint_bg_color);
+    let mut fill = rect;
+    fill.set_width((42.0 * fraction).max(2.0));
+    ui.painter().rect_filled(fill, 2.0, color);
+    ui.label(RichText::new("claude").weak());
 }

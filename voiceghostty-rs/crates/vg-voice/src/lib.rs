@@ -3,6 +3,7 @@
 //! 引擎由配置 `voice-engine` 选择(见 vg-core::config::VoiceEngineKind),`auto` 时按
 //! 外部命令(配了 voice-command)→ HTTP(有 API Key 或指向本机服务)的顺序挑第一个可用的。
 
+pub mod chime;
 pub mod clip;
 pub mod engine;
 pub mod recorder;

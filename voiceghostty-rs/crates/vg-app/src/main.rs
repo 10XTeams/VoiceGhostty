@@ -2,6 +2,7 @@
 
 mod app;
 mod fonts;
+mod monitor;
 mod pipeline;
 mod ptt;
 mod terminal;

@@ -17,6 +17,10 @@ env_logger.workspace = true
 eframe = "0.36"
 alacritty_terminal = "0.26"
 egui = "0.36"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

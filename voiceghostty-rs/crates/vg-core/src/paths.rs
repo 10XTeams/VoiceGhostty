@@ -37,3 +37,13 @@ pub fn expand_tilde(path: &str) -> PathBuf {
     }
     PathBuf::from(path)
 }
+
+/// 会话记录(每个窗格一个 .log)
+pub fn history_dir() -> PathBuf {
+    config_dir().join("history")
+}
+
+/// 运行期文件(各窗格的命令边界状态文件)
+pub fn run_dir() -> PathBuf {
+    config_dir().join("run")
+}

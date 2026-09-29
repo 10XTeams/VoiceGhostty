@@ -3,12 +3,14 @@
 
 use std::time::{Duration, Instant};
 
-use alacritty_terminal::grid::Scroll;
+use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::index::{Column, Line, Point, Side};
+use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, CursorShape};
-use egui::{pos2, vec2, Align2, Color32, Event, EventFilter, FontId, ImeEvent, Rect, Sense, Stroke};
+use egui::{pos2, vec2, Align2, Color32, Event, EventFilter, FontId, ImeEvent, Pos2, Rect, Sense, Stroke};
 
 use vg_core::{Rgb, Theme};
 
@@ -23,7 +25,15 @@ pub struct InputState {
     /// 输入法正在组字(拼音还没上屏)。组字时空格属于输入法,不能拦截成按住说话
     pub preedit: String,
     scroll_accum: f32,
+    /// 鼠标选择:正在拖选 / 连击计数(1 单击、2 双击选词、3 三击选行)
+    selecting: bool,
+    last_click: Option<(Instant, Pos2)>,
+    click_count: u8,
 }
+
+/// 连击判定:间隔与位移
+const MULTI_CLICK: Duration = Duration::from_millis(400);
+const MULTI_CLICK_SLOP: f32 = 4.0;
 
 pub struct ViewOptions<'a> {
     pub theme: &'a Theme,
@@ -68,6 +78,8 @@ pub fn show(
         cell_w: cw.round() as u16,
         cell_h: ch.round() as u16,
     });
+
+    handle_mouse(ui, session, state, rect, cw, ch);
 
     let mut actions = Vec::new();
     if focused {
@@ -131,7 +143,10 @@ fn handle_input(
             // 空格由上面的按键事件负责(点按时补发),这里丢掉以免重复
             Event::Text(t) if opts.ptt_enabled && t == " " && state.preedit.is_empty() => {}
             Event::Text(t) => {
-                session.term.lock().scroll_display(Scroll::Bottom);
+                let mut term = session.term.lock();
+                term.scroll_display(Scroll::Bottom);
+                term.selection = None;
+                drop(term);
                 session.write(t.into_bytes());
             }
             Event::Key { key, pressed: true, modifiers, .. } => {
@@ -146,8 +161,16 @@ fn handle_input(
                 session.write(text.into_bytes());
             }
             Event::Paste(text) => paste(session, mode, &text),
-            // Linux/Windows 上 egui 把 Ctrl+C / Ctrl+X 变成复制/剪切事件;终端里它们应该是控制字符
-            Event::Copy if !cfg!(target_os = "macos") => session.write(&b"\x03"[..]),
+            // macOS:⌘C 复制选区。Linux/Windows:egui 把 Ctrl+C 也变成复制事件——
+            // 带 Shift(Ctrl+Shift+C)才是复制,否则它在终端里应该是中断(^C)
+            Event::Copy => {
+                let shift = ui.input(|i| i.modifiers.shift);
+                if cfg!(target_os = "macos") || shift {
+                    copy_selection(ui, session);
+                } else {
+                    session.write(&b"\x03"[..]);
+                }
+            }
             Event::Cut if !cfg!(target_os = "macos") => session.write(&b"\x18"[..]),
             Event::MouseWheel { delta, unit, .. } if hovered => {
                 let lines = match unit {
@@ -172,6 +195,62 @@ fn handle_input(
     }
     if state.ptt.is_pending() {
         ui.ctx().request_repaint_after(Duration::from_millis(30));
+    }
+}
+
+/// 屏幕坐标 → 网格坐标(含滚动偏移)与落在格子的哪半边
+fn grid_point(session: &TerminalSession, rect: Rect, cw: f32, ch: f32, pos: Pos2) -> (Point, Side) {
+    let term = session.term.lock();
+    let grid = term.grid();
+    let x = ((pos.x - rect.min.x) / cw).max(0.0);
+    let y = ((pos.y - rect.min.y) / ch).max(0.0);
+    let col = (x.floor() as usize).min(grid.columns() - 1);
+    let row = (y.floor() as usize).min(grid.screen_lines() - 1);
+    let side = if x.fract() < 0.5 { Side::Left } else { Side::Right };
+    let line = Line(row as i32 - grid.display_offset() as i32);
+    (Point::new(line, Column(col)), side)
+}
+
+fn handle_mouse(ui: &egui::Ui, session: &TerminalSession, state: &mut InputState, rect: Rect, cw: f32, ch: f32) {
+    let (pressed, down, released, pos) = ui.input(|i| {
+        (i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.primary_released(), i.pointer.interact_pos())
+    });
+    let Some(pos) = pos else { return };
+
+    if pressed && rect.contains(pos) {
+        let now = Instant::now();
+        let repeat = state.last_click.is_some_and(|(t, p)| {
+            now.duration_since(t) < MULTI_CLICK && p.distance(pos) < MULTI_CLICK_SLOP
+        });
+        state.click_count = if repeat { state.click_count % 3 + 1 } else { 1 };
+        state.last_click = Some((now, pos));
+        let ty = match state.click_count {
+            2 => SelectionType::Semantic,
+            3 => SelectionType::Lines,
+            _ => SelectionType::Simple,
+        };
+        let (point, side) = grid_point(session, rect, cw, ch, pos);
+        session.term.lock().selection = Some(Selection::new(ty, point, side));
+        state.selecting = true;
+    } else if down && state.selecting {
+        let (point, side) = grid_point(session, rect, cw, ch, pos);
+        if let Some(sel) = session.term.lock().selection.as_mut() {
+            sel.update(point, side);
+        }
+    }
+    if released && state.selecting {
+        state.selecting = false;
+        // 单击没拖动:清掉空选区
+        let mut term = session.term.lock();
+        if term.selection.as_ref().is_some_and(|s| s.is_empty()) {
+            term.selection = None;
+        }
+    }
+}
+
+fn copy_selection(ui: &egui::Ui, session: &TerminalSession) {
+    if let Some(text) = session.term.lock().selection_to_string().filter(|t| !t.is_empty()) {
+        ui.ctx().copy_text(text);
     }
 }
 
@@ -221,6 +300,7 @@ fn draw(
     let content = term.renderable_content();
     let offset = content.display_offset as i32;
     let colors = content.colors;
+    let selection = content.selection;
 
     for indexed in content.display_iter {
         let cell = &indexed.cell;
@@ -233,7 +313,8 @@ fn draw(
 
         let mut fg = resolve(&cell.fg, colors, theme);
         let mut bg = resolve(&cell.bg, colors, theme);
-        if cell.flags.contains(Flags::INVERSE) {
+        let selected = selection.is_some_and(|s| s.contains(indexed.point));
+        if cell.flags.contains(Flags::INVERSE) != selected {
             std::mem::swap(&mut fg, &mut bg);
         }
         if cell.flags.contains(Flags::DIM) {
