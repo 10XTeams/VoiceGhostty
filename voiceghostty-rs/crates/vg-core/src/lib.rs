@@ -3,6 +3,7 @@
 pub mod claude;
 pub mod claude_usage;
 pub mod config;
+pub mod loader;
 pub mod nl2command;
 pub mod ollama;
 pub mod paths;

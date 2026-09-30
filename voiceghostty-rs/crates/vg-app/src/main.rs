@@ -2,10 +2,16 @@
 
 mod app;
 mod fonts;
+mod loader_panel;
 mod monitor;
 mod pipeline;
 mod ptt;
+mod settings_ui;
+mod shortcuts;
+mod split;
+mod workspace;
 mod terminal;
+mod widgets;
 
 fn main() -> eframe::Result {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();

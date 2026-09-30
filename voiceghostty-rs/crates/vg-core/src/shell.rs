@@ -96,9 +96,32 @@ add-zsh-hook precmd _vg_pc
     ]
 }
 
+/// 把路径安全地放进一条 shell 命令(空格、引号都不会把命令拆坏)
+pub fn quote(path: &str) -> String {
+    // POSIX shell 与 PowerShell 的单引号都是字面量;区别只在单引号本身怎么转义
+    if cfg!(windows) {
+        format!("'{}'", path.replace('\'', "''"))
+    } else {
+        format!("'{}'", path.replace('\'', r"'\''"))
+    }
+}
+
+/// `cd <dir> && claude`:常用项目菜单的动作。这是用户明确点击发出的,所以带回车执行,
+/// 与语音"永不自动回车"的安全规则不冲突
+pub fn launch_claude_command(dir: &Path) -> String {
+    format!("cd {} && claude\r", quote(&dir.to_string_lossy()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn quotes_paths() {
+        assert_eq!(quote("/a b/it's"), r"'/a b/it'\''s'");
+        assert_eq!(launch_claude_command(Path::new("/p q")), "cd '/p q' && claude\r");
+    }
 
     #[test]
     fn zshrc_sources_user_rc_and_installs_hooks() {

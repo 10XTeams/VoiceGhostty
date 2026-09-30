@@ -5,7 +5,7 @@
 
 use std::borrow::Cow;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -117,7 +117,7 @@ pub struct PaneShared {
     probe: Option<PtyProbe>,
     shell_pid: Option<u32>,
     state_file: PathBuf,
-    scrollback: usize,
+    scrollback: AtomicUsize,
     /// UI 设置:这是你正盯着的那个窗格(窗口在前台),保持灰色,不拿自己的灯烦自己
     pub neutral: AtomicBool,
 }
@@ -202,10 +202,11 @@ impl PaneShared {
         let mut logger = self.logger.lock().unwrap();
         if let Some(logger) = logger.as_mut() {
             let term = self.term.lock();
+            let limit = self.scrollback.load(Ordering::Relaxed);
             if finish {
-                logger.finish(&term, self.scrollback);
+                logger.finish(&term, limit);
             } else {
-                logger.flush(&term, self.scrollback);
+                logger.flush(&term, limit);
             }
         }
     }
@@ -270,7 +271,7 @@ impl TerminalSession {
             probe,
             shell_pid,
             state_file,
-            scrollback,
+            scrollback: AtomicUsize::new(scrollback),
             neutral: AtomicBool::new(false),
         });
 
@@ -293,6 +294,17 @@ impl TerminalSession {
     pub fn type_text(&self, text: &str) {
         self.term.lock().scroll_display(Scroll::Bottom);
         self.write(text.as_bytes().to_vec());
+    }
+
+    /// 改这个窗格保留的历史行数,立即生效(缩小会马上丢掉最老的行)
+    pub fn set_scrollback(&self, lines: usize) {
+        self.shared.scrollback.store(lines, Ordering::Relaxed);
+        self.term.lock().set_options(TermConfig { scrolling_history: lines, ..TermConfig::default() });
+    }
+
+    /// ⌘K:发 Ctrl-L,shell 重绘并清屏
+    pub fn clear_screen(&self) {
+        self.write(&b"\x0c"[..]);
     }
 
     pub fn resize(&mut self, size: GridSize) {
@@ -455,14 +467,14 @@ mod tests {
 
         let mut state = InputState::default();
         let theme = Theme::DARK;
-        let opts = ViewOptions { theme: &theme, font_size: 13.0, hold: Duration::from_millis(250), ptt_enabled: true };
+        let opts = ViewOptions { theme: &theme, font_size: 13.0, hold: Duration::from_millis(250), ptt_enabled: true, grab_focus: true };
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0))),
             ..Default::default()
         };
         let mut out = ctx.run_ui(input, |ui| {
-            let actions = view::show(ui, &mut s, &mut state, &opts);
-            assert!(actions.is_empty());
+            let out = view::show(ui, &mut s, &mut state, &opts);
+            assert!(out.actions.is_empty());
         });
         assert!(!out.shapes.is_empty());
         out.textures_delta.clear(); // headless:没有渲染器消费纹理更新
@@ -527,7 +539,7 @@ mod tests {
 
         let mut state = InputState::default();
         let theme = Theme::DARK;
-        let opts = ViewOptions { theme: &theme, font_size: 13.0, hold: Duration::from_millis(250), ptt_enabled: true };
+        let opts = ViewOptions { theme: &theme, font_size: 13.0, hold: Duration::from_millis(250), ptt_enabled: true, grab_focus: true };
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0));
         let frame = |events: Vec<egui::Event>, s: &mut TerminalSession, state: &mut InputState| {
             let input = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
@@ -570,5 +582,90 @@ mod tests {
             commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyText(t) if t == "vgword")),
             "{commands:?}"
         );
+    }
+
+    /// 搜索端到端:输出两处标记,⌘F 先命中最新的,再往上是更早的,再往下回到最新的;找不到的报 NotFound
+    #[test]
+    fn search_walks_matches() {
+        use crate::terminal::search::{SearchResult, SearchState};
+        let ctx = egui::Context::default();
+        let size = GridSize { cols: 80, rows: 24, cell_w: 8, cell_h: 16 };
+        let s = TerminalSession::spawn(&ctx, size, 1000, &test_settings(), 95).unwrap();
+        s.write(&b"printf 'vgfind-one\\nfiller\\nvgfind-two\\n'\r"[..]);
+        // 标记出现两次:一次在敲进去的命令里,一次在输出里
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while screen_text(&s).matches("vgfind-two").count() < 2 {
+            assert!(Instant::now() < deadline, "{}", screen_text(&s));
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
+        let mut search = SearchState::default();
+        search.query = "vgfind-".into();
+        let selected = |s: &TerminalSession| s.term.lock().selection_to_string().unwrap_or_default();
+        let row_of_selection = |s: &TerminalSession| {
+            let term = s.term.lock();
+            term.selection.as_ref().and_then(|sel| sel.to_range(&term)).map(|r| r.start.line.0)
+        };
+
+        assert_eq!(search.step(&s, false), SearchResult::Found);
+        assert_eq!(selected(&s), "vgfind-");
+        let newest = row_of_selection(&s).unwrap();
+        assert_eq!(search.step(&s, false), SearchResult::Found);
+        let older = row_of_selection(&s).unwrap();
+        assert!(older < newest, "second hit should be above the first ({older} vs {newest})");
+        assert_eq!(search.step(&s, true), SearchResult::Found);
+        assert_eq!(row_of_selection(&s).unwrap(), newest);
+
+        let mut missing = SearchState::default();
+        missing.query = "zz-not-there-zz".into();
+        assert_eq!(missing.step(&s, false), SearchResult::NotFound);
+    }
+
+    /// 分屏:两个窗格并排渲染,只有当前窗格拿键盘焦点;点另一个窗格会报告 clicked
+    #[test]
+    fn split_panes_focus_and_click() {
+        use crate::split::{Axis, Node};
+        use crate::terminal::view::{self, InputState, ViewOptions};
+        let ctx = egui::Context::default();
+        let size = GridSize { cols: 40, rows: 20, cell_w: 8, cell_h: 16 };
+        let mut left = TerminalSession::spawn(&ctx, size, 100, &test_settings(), 93).unwrap();
+        let mut right = TerminalSession::spawn(&ctx, size, 100, &test_settings(), 94).unwrap();
+        let (mut in_l, mut in_r) = (InputState::default(), InputState::default());
+        let tree = Node::Leaf(1u64).inserting(2, 1, Axis::Horizontal);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0));
+        let theme = Theme::DARK;
+
+        let mut frame = |events: Vec<egui::Event>| {
+            let mut clicked = vec![];
+            let input = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                for (id, rect) in tree.frames(ui.available_rect_before_wrap(), 2.0) {
+                    let opts = ViewOptions {
+                        theme: &theme,
+                        font_size: 13.0,
+                        hold: Duration::from_millis(250),
+                        ptt_enabled: true,
+                        grab_focus: id == 1,
+                    };
+                    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt(("pane", id)));
+                    let (s, st) = if id == 1 { (&mut left, &mut in_l) } else { (&mut right, &mut in_r) };
+                    if view::show(&mut child, s, st, &opts).clicked {
+                        clicked.push(id);
+                    }
+                }
+            });
+            out.textures_delta.clear();
+            clicked
+        };
+        frame(vec![]);
+        frame(vec![]);
+        let focused = ctx.memory(|m| m.focused());
+        assert!(focused.is_some(), "active pane should own keyboard focus");
+
+        // 点右半边
+        let pos = egui::pos2(600.0, 200.0);
+        let press = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        let clicked = frame(vec![egui::Event::PointerMoved(pos), press(true)]);
+        assert_eq!(clicked, vec![2]);
     }
 }

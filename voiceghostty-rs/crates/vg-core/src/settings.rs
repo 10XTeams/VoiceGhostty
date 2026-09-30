@@ -30,8 +30,10 @@ pub struct Settings {
     pub done_sound: bool,
     /// 技能库目录;写过一次后即使为空也以它为准(清空也是一种选择)
     pub skill_library_dirs: Option<Vec<PathBuf>>,
-    /// 🧩 面板里折叠的分组("plugin" / "skill" / "agent")
+    /// 🧩 面板里折叠的分组,键为 "<页签>/<文件夹>"
     pub loader_groups_collapsed: BTreeSet<String>,
+    /// 常用项目:点一下就在当前窗格 cd 进去并启动 claude
+    pub claude_dirs: Vec<PathBuf>,
 }
 
 impl Default for Settings {
@@ -46,6 +48,7 @@ impl Default for Settings {
             done_sound: true,
             skill_library_dirs: None,
             loader_groups_collapsed: BTreeSet::new(),
+            claude_dirs: Vec::new(),
         }
     }
 }

@@ -17,6 +17,7 @@ env_logger.workspace = true
 eframe = "0.36"
 alacritty_terminal = "0.26"
 egui = "0.36"
+rfd = "0.17"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [target.'cfg(unix)'.dependencies]

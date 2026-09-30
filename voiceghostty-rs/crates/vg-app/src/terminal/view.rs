@@ -41,15 +41,23 @@ pub struct ViewOptions<'a> {
     pub hold: Duration,
     /// 为 false 时空格就是空格(语音关闭 / 正在识别)
     pub ptt_enabled: bool,
+    /// 这是当前窗格,且键盘焦点应该在终端上(没有搜索框、改名框之类的在用键盘)
+    pub grab_focus: bool,
 }
 
-/// 返回需要 App 处理的按住说话动作(开始/停止录音)
+pub struct ViewOutput {
+    /// 需要 App 处理的按住说话动作(开始/停止录音)
+    pub actions: Vec<PttAction>,
+    /// 这一帧被点了:App 把它设为当前窗格
+    pub clicked: bool,
+}
+
 pub fn show(
     ui: &mut egui::Ui,
     session: &mut TerminalSession,
     state: &mut InputState,
     opts: &ViewOptions,
-) -> Vec<PttAction> {
+) -> ViewOutput {
     let font = FontId::monospace(opts.font_size);
     let (cw, ch) = ui
         .ctx()
@@ -60,8 +68,11 @@ pub fn show(
     let response = ui.interact(rect, id, Sense::click());
     ui.allocate_rect(rect, Sense::hover());
 
-    // 点一下获取焦点;没有别的控件抢焦点时终端默认持有焦点
-    if response.clicked() || ui.memory(|m| m.focused().is_none()) {
+    // 点一下获取焦点;当前窗格在没有别的输入框占用键盘时自动持有焦点
+    // 按下就算(不等松开),拖选开始时焦点就该过来;contains_pointer 会考虑上层浮窗的遮挡
+    let under_pointer = response.contains_pointer();
+    let clicked = under_pointer && ui.input(|i| i.pointer.primary_pressed());
+    if clicked || (opts.grab_focus && !response.has_focus()) {
         response.request_focus();
     }
     let focused = response.has_focus();
@@ -79,7 +90,7 @@ pub fn show(
         cell_h: ch.round() as u16,
     });
 
-    handle_mouse(ui, session, state, rect, cw, ch);
+    handle_mouse(ui, session, state, rect, cw, ch, under_pointer);
 
     let mut actions = Vec::new();
     if focused {
@@ -104,7 +115,17 @@ pub fn show(
     }
 
     draw(ui, session, state, opts, rect, &font, cw, ch, focused);
-    actions
+    ViewOutput { actions, clicked }
+}
+
+/// ⌘A:选中全部历史与屏幕
+pub fn select_all(session: &TerminalSession) {
+    let mut term = session.term.lock();
+    let (top, bottom) = (term.grid().topmost_line(), term.grid().bottommost_line());
+    let last = term.grid().last_column();
+    let mut sel = Selection::new(SelectionType::Lines, Point::new(top, Column(0)), Side::Left);
+    sel.update(Point::new(bottom, last), Side::Right);
+    term.selection = Some(sel);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -211,13 +232,21 @@ fn grid_point(session: &TerminalSession, rect: Rect, cw: f32, ch: f32, pos: Pos2
     (Point::new(line, Column(col)), side)
 }
 
-fn handle_mouse(ui: &egui::Ui, session: &TerminalSession, state: &mut InputState, rect: Rect, cw: f32, ch: f32) {
+fn handle_mouse(
+    ui: &egui::Ui,
+    session: &TerminalSession,
+    state: &mut InputState,
+    rect: Rect,
+    cw: f32,
+    ch: f32,
+    under_pointer: bool,
+) {
     let (pressed, down, released, pos) = ui.input(|i| {
         (i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.primary_released(), i.pointer.interact_pos())
     });
     let Some(pos) = pos else { return };
 
-    if pressed && rect.contains(pos) {
+    if pressed && under_pointer {
         let now = Instant::now();
         let repeat = state.last_click.is_some_and(|(t, p)| {
             now.duration_since(t) < MULTI_CLICK && p.distance(pos) < MULTI_CLICK_SLOP
