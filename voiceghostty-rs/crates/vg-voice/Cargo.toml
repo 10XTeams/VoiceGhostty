@@ -16,3 +16,11 @@ reqwest.workspace = true
 cpal = "0.15"
 hound = "3.5"
 tempfile = "3"
+# 进程内 whisper.cpp(需要 cmake + C++ 编译器),默认关闭
+whisper-rs = { version = "0.16", optional = true }
+
+[features]
+# 进程内 whisper.cpp 引擎(voice-engine = whisper)
+whisper = ["dep:whisper-rs"]
+# 再加上 GPU 加速:macOS 用 Metal
+whisper-metal = ["whisper", "whisper-rs/metal"]

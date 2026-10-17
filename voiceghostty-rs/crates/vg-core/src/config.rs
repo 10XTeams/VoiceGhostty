@@ -37,7 +37,7 @@ impl LlmProvider {
 /// 语音识别引擎。具体实现在 vg-voice crate,这里只描述"用户选了什么"。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VoiceEngineKind {
-    /// 按可用性自动挑:内置 whisper(有模型文件)→ 外部命令 → HTTP(有 Key)
+    /// 按可用性自动挑:内置 whisper(编译进来且有模型)→ 外部命令 → HTTP(有 Key 或本机服务)
     #[default]
     Auto,
     /// OpenAI 兼容的 `/v1/audio/transcriptions`(OpenAI、Groq、本地 faster-whisper-server、whisper.cpp server…)
@@ -85,7 +85,7 @@ pub struct VoiceConfig {
     pub api_model: String,
     /// 外部命令模板,例:`whisper-cli -m ~/models/ggml-base.bin -l {lang} -nt -f {wav}`
     pub command: String,
-    /// 内置 whisper 的 ggml 模型路径
+    /// 内置 whisper 的 ggml 模型路径;不写时在 `<配置目录>/models/` 里找 `ggml-*.bin`
     pub model_path: Option<PathBuf>,
     /// 麦克风设备名(空 = 系统默认)
     pub device: String,
@@ -111,6 +111,27 @@ impl Default for VoiceConfig {
 }
 
 impl VoiceConfig {
+    /// 内置 whisper 要用的模型:配置里写了就用它(不存在则 None),否则取模型目录里的第一个 `ggml-*.bin`
+    pub fn resolved_model(&self) -> Option<PathBuf> {
+        if let Some(p) = &self.model_path {
+            return p.is_file().then(|| p.clone());
+        }
+        let mut found: Vec<PathBuf> = std::fs::read_dir(models_dir())
+            .ok()?
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.is_file()
+                    && p.file_name().is_some_and(|n| {
+                        let n = n.to_string_lossy();
+                        n.starts_with("ggml-") && n.ends_with(".bin")
+                    })
+            })
+            .collect();
+        found.sort();
+        found.into_iter().next()
+    }
+
     pub fn resolved_api_key(&self) -> Option<String> {
         if !self.api_key.is_empty() {
             return Some(self.api_key.clone());
@@ -119,6 +140,11 @@ impl VoiceConfig {
             .iter()
             .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
     }
+}
+
+/// 内置 whisper 默认的模型目录
+pub fn models_dir() -> PathBuf {
+    crate::paths::config_dir().join("models")
 }
 
 /// "zh-CN" → "zh","en-US" → "en","auto" 保持

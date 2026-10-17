@@ -80,6 +80,7 @@ impl VoiceGhosttyApp {
         crate::fonts::install(&cc.egui_ctx, &config.font_family);
         widgets::apply_visuals(&cc.egui_ctx, &config.theme());
 
+        vg_voice::preload(&config.voice);
         // 把 Ollama 冷加载挪到用户开口之前;服务没开会立即失败,无副作用
         if config.correction_enabled {
             let (model, url) = (config.llm_local_model.clone(), config.llm_local_url.clone());
@@ -700,9 +701,10 @@ impl VoiceGhosttyApp {
 }
 
 impl eframe::App for VoiceGhosttyApp {
-    /// 退出时把各窗格屏幕上剩下的行写进记录(窗格 drop 时完成),并挂断 shell
+    /// 退出时把各窗格屏幕上剩下的行写进记录(窗格 drop 时完成),并挂断 shell;再释放 whisper 模型
     fn on_exit(&mut self) {
         self.ws.panes.clear();
+        vg_voice::shutdown();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

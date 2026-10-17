@@ -20,7 +20,7 @@ impl VoiceGhosttyApp {
                 ui.label("语音引擎");
                 let current = self.config.voice.engine;
                 egui::ComboBox::from_id_salt("engine").selected_text(current.as_str()).show_ui(ui, |ui| {
-                    for kind in [VoiceEngineKind::Auto, VoiceEngineKind::Http, VoiceEngineKind::Command, VoiceEngineKind::Off] {
+                    for kind in [VoiceEngineKind::Auto, VoiceEngineKind::Whisper, VoiceEngineKind::Http, VoiceEngineKind::Command, VoiceEngineKind::Off] {
                         if ui.selectable_label(current == kind, kind.as_str()).clicked() {
                             self.settings.voice_engine = Some(kind.as_str().into());
                             changed = true;

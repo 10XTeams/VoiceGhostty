@@ -22,13 +22,29 @@ cargo test --workspace
 配置文件路径：`~/.config/voiceghostty/config`，Windows 上是 `%APPDATA%\voiceghostty\config`。与 Swift 版共用同一份配置，原有的 key 都兼容。
 
 ```ini
-# auto | http | command | off
-# auto 的选择顺序:先用 voice-command，其次 API Key，最后指向本机的 voice-api-url
+# auto | whisper | http | command | off
+# auto 的选择顺序：内置 whisper（编译进来且有模型）→ voice-command → API Key → 指向本机的 voice-api-url
 voice-engine = auto
 voice-language = zh          # zh | en | auto(也接受 zh-CN / en-US 写法)
 voice-punctuation = on       # 主要口述 shell 命令时建议 off
 voice-hold-ms = 250          # 按住多久算"按住说话"
 voice-device =               # 麦克风名,留空用系统默认
+```
+
+**方案 0：内置 whisper（本地离线，零配置）**。编译时要加上 whisper 支持，需要先装 cmake：
+
+```sh
+cargo run --release -p vg-app --features whisper-metal   # macOS 用 Metal 加速；其他平台用 --features whisper
+```
+
+然后把 whisper.cpp 的模型文件（`ggml-*.bin`）放到 `~/.config/voiceghostty/models/`，或者在配置里用 `voice-model = <路径>` 指定。这样 `voice-engine = auto` 就会优先使用它。模型在 App 启动时就在后台载入，第一次说话不用等。
+
+模型选择：`base` 约 150MB，英文效果很好。中文建议用 `small` 以上，或者 `large-v3-turbo`（约 1.6GB）。同音字仍可能认错：用合成语音实测，`base` 把"磁盘"听成"随盘"，`large-v3-turbo` 听成"瓷盘"。真人说话、加上上下文提示时会好一些。
+
+```sh
+mkdir -p ~/.config/voiceghostty/models
+curl -L -o ~/.config/voiceghostty/models/ggml-large-v3-turbo.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
 ```
 
 **方案 A：外部命令（本地离线，推荐）**。例如使用 [whisper.cpp](https://github.com/ggml-org/whisper.cpp)：

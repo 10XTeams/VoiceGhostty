@@ -7,6 +7,8 @@ pub mod chime;
 pub mod clip;
 pub mod engine;
 pub mod recorder;
+#[cfg(feature = "whisper")]
+pub mod whisper;
 
 use anyhow::bail;
 use vg_core::{VoiceConfig, VoiceEngineKind};
@@ -24,11 +26,12 @@ pub fn build_engine(cfg: &VoiceConfig) -> anyhow::Result<Box<dyn SpeechEngine>> 
         VoiceEngineKind::Off => bail!("Voice is off (voice-engine = off)"),
         VoiceEngineKind::Command => command_engine(cfg),
         VoiceEngineKind::Http => Ok(Box::new(http_engine(cfg))),
-        VoiceEngineKind::Whisper => bail!(
-            "The built-in whisper engine is not compiled into this build yet; \
-             use voice-engine = command with whisper.cpp's whisper-cli instead"
-        ),
+        VoiceEngineKind::Whisper => whisper_engine(cfg),
         VoiceEngineKind::Auto => {
+            // 编进来了且有模型:本地离线、零配置,优先
+            if cfg!(feature = "whisper") && cfg.resolved_model().is_some() {
+                return whisper_engine(cfg);
+            }
             if !cfg.command.is_empty() {
                 return command_engine(cfg);
             }
@@ -42,6 +45,43 @@ pub fn build_engine(cfg: &VoiceConfig) -> anyhow::Result<Box<dyn SpeechEngine>> 
             )
         }
     }
+}
+
+#[cfg(feature = "whisper")]
+fn whisper_engine(cfg: &VoiceConfig) -> anyhow::Result<Box<dyn SpeechEngine>> {
+    let model = cfg.resolved_model().ok_or_else(|| {
+        anyhow::anyhow!(
+            "No whisper model found: set voice-model, or put a ggml-*.bin into {}",
+            vg_core::config::models_dir().display()
+        )
+    })?;
+    Ok(Box::new(whisper::WhisperEngine { model }))
+}
+
+#[cfg(not(feature = "whisper"))]
+fn whisper_engine(_cfg: &VoiceConfig) -> anyhow::Result<Box<dyn SpeechEngine>> {
+    bail!(
+        "This build does not include the built-in whisper engine (build with --features whisper), \
+         or use voice-engine = command with whisper.cpp's whisper-cli"
+    )
+}
+
+/// 选了内置 whisper 时,启动就在后台载入模型
+pub fn preload(cfg: &VoiceConfig) {
+    #[cfg(feature = "whisper")]
+    if matches!(cfg.engine, VoiceEngineKind::Whisper | VoiceEngineKind::Auto) {
+        if let Some(model) = cfg.resolved_model() {
+            whisper::preload(&model);
+        }
+    }
+    #[cfg(not(feature = "whisper"))]
+    let _ = cfg;
+}
+
+/// 退出前释放内置 whisper 的模型(没编进来时什么都不做)
+pub fn shutdown() {
+    #[cfg(feature = "whisper")]
+    whisper::unload();
 }
 
 fn command_engine(cfg: &VoiceConfig) -> anyhow::Result<Box<dyn SpeechEngine>> {
