@@ -86,6 +86,29 @@ impl VoiceGhosttyApp {
                         }
                     });
                     kit::hairline(ui);
+                    kit::setting_row(ui, "默认文件夹", Some("新标签页和启动时从这里开始;分屏跟随原窗格"), |ui| {
+                        let current = self.settings.default_dir.clone();
+                        let shown = current.as_deref().map(vg_core::loader::tilde).unwrap_or_else(|| "家目录".into());
+                        let full = current.as_deref().map(|d| d.display().to_string()).unwrap_or_default();
+                        if current.is_some() {
+                            if kit::icon_button_sized(ui, Icon::Close, false, 26.0, 13.0).on_hover_text("恢复为家目录").clicked() {
+                                self.settings.default_dir = None;
+                                changed = true;
+                            }
+                        }
+                        if kit::icon_button_sized(ui, Icon::Folder, false, 26.0, 13.0).on_hover_text("选择文件夹").clicked() {
+                            let start = current.clone().unwrap_or_else(vg_core::paths::home_dir);
+                            if let Some(picked) = rfd::FileDialog::new().set_title("选择新标签页的默认文件夹").set_directory(start).pick_folder() {
+                                self.settings.default_dir = Some(picked);
+                                changed = true;
+                            }
+                        }
+                        let label = ui.add(egui::Label::new(RichText::new(shown).font(style::small()).color(p.text2)).truncate());
+                        if !full.is_empty() {
+                            label.on_hover_text(full);
+                        }
+                    });
+                    kit::hairline(ui);
                     kit::setting_row(ui, "历史行数", Some("每个窗格保留多少行滚出屏幕的输出"), |ui| {
                         let mut lines = self.config.scrollback;
                         let drag = egui::DragValue::new(&mut lines).range(SCROLLBACK_RANGE).speed(100.0).suffix(" 行");

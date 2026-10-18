@@ -34,6 +34,8 @@ pub struct Settings {
     pub loader_groups_collapsed: BTreeSet<String>,
     /// 常用项目:点一下就在当前窗格 cd 进去并启动 claude
     pub claude_dirs: Vec<PathBuf>,
+    /// 新标签页(⌘T)和启动时第一个窗格的起始目录;None 为家目录。分屏不用它,跟随原窗格
+    pub default_dir: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -49,6 +51,7 @@ impl Default for Settings {
             skill_library_dirs: None,
             loader_groups_collapsed: BTreeSet::new(),
             claude_dirs: Vec::new(),
+            default_dir: None,
         }
     }
 }
@@ -118,9 +121,10 @@ mod tests {
 
     #[test]
     fn roundtrips_and_tolerates_missing_fields() {
-        let s: Settings = serde_json::from_str(r#"{"done-sound": false}"#).unwrap();
+        let s: Settings = serde_json::from_str(r#"{"done-sound": false, "default-dir": "/tmp"}"#).unwrap();
         assert!(!s.done_sound);
         assert!(s.save_history);
+        assert_eq!(s.default_dir, Some(PathBuf::from("/tmp")));
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);
     }

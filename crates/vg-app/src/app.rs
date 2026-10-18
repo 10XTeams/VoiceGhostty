@@ -132,7 +132,8 @@ impl VoiceGhosttyApp {
             #[cfg(test)]
             preview_voice: None,
         };
-        if let Some(pane) = app.spawn_pane(&cc.egui_ctx, None) {
+        let first_cwd = app.settings.default_dir.clone();
+        if let Some(pane) = app.spawn_pane(&cc.egui_ctx, first_cwd) {
             app.ws.add_tab(pane);
         }
         app
@@ -156,8 +157,9 @@ impl VoiceGhosttyApp {
         }
     }
 
+    /// 新标签页从设置里的默认文件夹开始(没设就是家目录)
     fn new_tab(&mut self, ctx: &egui::Context) {
-        if let Some(pane) = self.spawn_pane(ctx, None) {
+        if let Some(pane) = self.spawn_pane(ctx, self.settings.default_dir.clone()) {
             self.ws.add_tab(pane);
         }
     }

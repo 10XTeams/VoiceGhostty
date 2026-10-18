@@ -417,6 +417,7 @@ Source: `crates/vg-app/src/chrome.rs` (`projects_menu`), `crates/vg-core/src/she
 | Voice | Automatic punctuation | Whether dictation is punctuated; on by default, worth turning off when mostly dictating shell commands. |
 | Terminal | Done chime | Ring when a light turns green; on by default, with a ▶ preview. Takes effect in the monitor thread at once. |
 | Terminal | Save session logs | Session history on/off, on by default, applies to panes opened from then on; a folder button opens the log directory. |
+| Terminal | Default folder | Where <kbd>⌘T</kbd> new tabs and the first pane at launch start; home by default. The folder button picks a directory, ✕ resets to home; a directory that no longer exists falls back to home. Splits ignore it and follow the original pane (see §7). |
 | Terminal | Scrollback lines | A drag-value field for 500–200 000, clamped automatically; applies immediately to panes that are already open. |
 | Appearance | Theme | Four swatches (terminal background, three ANSI colour dots and a foreground stroke); clicking recolours the whole UI **for this run only** — the lasting setting lives in the config file. |
 | Appearance | Command input colour | Colour picker; mirrored to `~/.config/voiceghostty/input-color` and picked up live by the zsh hook in every open tab. |
@@ -428,7 +429,7 @@ the version and commit (`VoiceGhostty v0.1.0 (abc1234+)`, see § 18), with the b
 
 Settings made here are stored in `~/.config/voiceghostty/settings.json` (keys: `default-language`, `voice-engine`,
 `adds-punctuation`, `scrollback`, `save-history`, `input-color`, `done-sound`, `skill-library-dirs`,
-`loader-groups-collapsed`, `claude-dirs`). For the keys it shares with the config file the GUI setting wins; a key never
+`loader-groups-collapsed`, `claude-dirs`, `default-dir`). For the keys it shares with the config file the GUI setting wins; a key never
 set in the GUI (`null`) falls back to the config file, which remains the power-user / fallback path. Saving settings also
 rewrites the `input-color` file.
 

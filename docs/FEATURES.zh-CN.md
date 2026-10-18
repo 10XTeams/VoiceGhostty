@@ -346,6 +346,7 @@
 | 语音 | 自动标点 | 听写结果是否带标点,默认开;主要口述 shell 命令时建议关掉。 |
 | 终端 | 完成提示音 | 状态灯转绿时响一声,默认开;旁边 ▶ 试听。即时作用于监视线程。 |
 | 终端 | 保存会话记录 | 会话历史开关,默认开,对此后新开的分屏生效;旁边文件夹按钮打开记录目录。 |
+| 终端 | 默认文件夹 | <kbd>⌘T</kbd> 新标签页和启动时第一个窗格的起始目录,默认家目录;文件夹按钮选目录,✕ 恢复为家目录。目录已不存在时回到家目录。分屏不受它影响,跟随原窗格(见第 7 节)。 |
 | 终端 | 历史行数 | 500–200000 的拖拽数值框,超范围自动夹回;立即应用到已打开的分屏。 |
 | 外观 | 主题 | 四个色块(终端底色 + 三个 ANSI 色点 + 前景色一道),点选即换整套界面,**本次运行有效**;长期修改写配置文件。 |
 | 外观 | 命令输入颜色 | 取色器;写入 `~/.config/voiceghostty/input-color`,由 zsh 钩子在所有已打开标签页实时读取生效。 |
@@ -355,7 +356,7 @@
 右下角显示版本与提交号(`VoiceGhostty v0.1.0 (abc1234+)`,见第 18 节),悬停看构建时间。
 
 这里改的设置存 `~/.config/voiceghostty/settings.json`(键:`default-language`、`voice-engine`、`adds-punctuation`、`scrollback`、
-`save-history`、`input-color`、`done-sound`、`skill-library-dirs`、`loader-groups-collapsed`、`claude-dirs`)。与配置文件共有的键,
+`save-history`、`input-color`、`done-sound`、`skill-library-dirs`、`loader-groups-collapsed`、`claude-dirs`、`default-dir`)。与配置文件共有的键,
 GUI 设置优先;没在 GUI 里设过的(`null`)回退配置文件。配置文件仍是进阶/兜底路径。每次保存设置也顺手把 `input-color` 文件写一遍。
 
 所有浮窗(设置、🧩 加载器、快捷键表、退出确认)都是 egui 的居中窗口:没有默认标题栏,自绘左对齐标题 + 右上角 ✕,

@@ -55,7 +55,7 @@ Working with [Claude Code](https://claude.com/claude-code) means a lot of "type 
 | 🎨 **Themes & search** | Dark / Light / Solarized Dark / Dracula, with the whole UI palette derived from the terminal theme. <kbd>⌘F</kbd> searches scrollback and selects the match so you can copy it; live font resize; <kbd>⌘K</kbd> clear. |
 | 📜 **Session history** | Every pane writes `~/.config/voiceghostty/history/<folder>-<start time>.log` — what the terminal actually displayed, not the raw byte stream. |
 | ✨ **Claude quick-launch** | Save project dirs; one click runs `cd <dir> && claude` in the active pane. |
-| ⚙️ **Settings panel** | <kbd>⌘,</kbd>: speech engine, recognition language, punctuation, done chime, session history, scrollback lines, theme, command-input color, loader folders. Changes apply immediately and win over the config file. |
+| ⚙️ **Settings panel** | <kbd>⌘,</kbd>: speech engine, recognition language, punctuation, done chime, session history, default folder for new tabs, scrollback lines, theme, command-input color, loader folders. Changes apply immediately and win over the config file. |
 | 🎨 **Colored input** | The command line you type at the zsh prompt is highlighted in a color you choose; changing it applies live to every open tab. |
 | 🔒 **Safe by design** | Voice never auto-presses Enter. Newlines are stripped before insertion. With built-in whisper, audio never leaves your machine. API keys stay in a local config file. |
 
@@ -206,7 +206,7 @@ Unknown keys and malformed lines are ignored, never an error. Every key is docum
 > Apps launched from Finder don't inherit your shell env, so put the API key in the config file and `chmod 600` it.
 
 **In-app Settings (<kbd>⌘,</kbd>).** Speech engine, recognition language, punctuation, done chime, session
-history, scrollback lines, command-input color and loader folders are editable in the panel, saved to
+history, default folder for new tabs, scrollback lines, command-input color and loader folders are editable in the panel, saved to
 `settings.json`, and win over the config file.
 
 ### Optional: local Ollama
