@@ -115,7 +115,13 @@ impl Action {
     pub fn label(self) -> String {
         let s = self.shortcuts()[0];
         if MAC {
+            // egui 的 Ctrl 符号是 ^、方向键是 ⏴⏵⏶⏷;macOS 菜单里的写法是 ⌃ 和 ←→↑↓
             s.format(&egui::ModifierNames::SYMBOLS, true)
+                .replace('^', "⌃")
+                .replace('⏴', "←")
+                .replace('⏵', "→")
+                .replace('⏶', "↑")
+                .replace('⏷', "↓")
         } else {
             s.format(&egui::ModifierNames::NAMES, false)
         }
@@ -132,7 +138,7 @@ pub fn help_sections() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
         (
             "语音",
             vec![
-                ("按住空格".into(), "说话(松开结束;快速点按仍是空格)"),
+                ("按住空格".into(), "说话,松开结束"),
                 row(ToggleRecording, "开始 / 停止录音"),
                 row(ToggleMode, "切换听写 / 自然语言"),
             ],
@@ -145,7 +151,7 @@ pub fn help_sections() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                 (format!("{} / {}", NextTab.label(), PrevTab.label()), "下一个 / 上一个标签页"),
                 (tab_n.into(), "跳到第 N 个标签页"),
                 row(LastTab, "最后一个标签页"),
-                ("双击标签".into(), "改名(清空恢复自动命名)"),
+                ("双击标签".into(), "改名"),
             ],
         ),
         (
@@ -154,9 +160,9 @@ pub fn help_sections() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                 row(SplitRight, "向右分屏"),
                 row(SplitDown, "向下分屏"),
                 (format!("{} 等方向键", FocusLeft.label()), "按方向切换分屏焦点"),
-                (move_n.into(), "把当前分屏移到第 N 个标签页(shell 与历史一起走)"),
+                (move_n.into(), "移到第 N 个标签页"),
                 (format!("{} / {}", MoveToPrevTab.label(), MoveToNextTab.label()), "移到上一个 / 下一个标签页"),
-                row(MoveToNewTab, "把当前分屏移出成新标签页"),
+                row(MoveToNewTab, "移出成新标签页"),
                 ("点击某个分屏".into(), "语音与输入发往该分屏"),
             ],
         ),
@@ -166,14 +172,14 @@ pub fn help_sections() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
                 (format!("{} / {}", FontBigger.label(), FontSmaller.label()), "增大 / 减小字号"),
                 row(FontReset, "重置字号"),
                 row(ClearScreen, "清屏"),
-                row(Find, "搜索历史(回车上一个更早的,⇧回车下一个)"),
+                row(Find, "搜索历史"),
             ],
         ),
         (
             "其他",
             vec![
                 row(SelectAll, "全选"),
-                row(Loader, "🧩 加载器"),
+                row(Loader, "加载器(技能 / Agent / 插件)"),
                 row(Settings, "设置"),
                 row(Help, "快捷键帮助"),
             ],
@@ -209,6 +215,10 @@ mod tests {
     #[test]
     fn labels_render() {
         assert!(!Action::SplitDown.label().is_empty());
+        if MAC {
+            assert_eq!(Action::FocusLeft.label(), "⌥⌘←");
+            assert!(!Action::MoveToNewTab.label().contains('^'));
+        }
         assert!(!help_sections().is_empty());
     }
 }

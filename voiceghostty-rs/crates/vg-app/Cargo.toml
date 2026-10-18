@@ -25,6 +25,7 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+egui_kittest = { version = "0.36", features = ["wgpu", "snapshot", "eframe"] }
 
 [features]
 whisper = ["vg-voice/whisper"]

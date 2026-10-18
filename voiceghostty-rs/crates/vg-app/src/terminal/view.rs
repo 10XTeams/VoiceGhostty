@@ -10,7 +10,7 @@ use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::color::Colors;
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, CursorShape};
-use egui::{pos2, vec2, Align2, Color32, Event, EventFilter, FontId, ImeEvent, Pos2, Rect, Sense, Stroke};
+use egui::{pos2, vec2, Color32, Event, EventFilter, FontId, ImeEvent, Pos2, Rect, Sense, Stroke};
 
 use vg_core::{Rgb, Theme};
 
@@ -330,6 +330,10 @@ fn draw(
     let offset = content.display_offset as i32;
     let colors = content.colors;
     let selection = content.selection;
+    let cursor = content.cursor;
+    let block_cursor = focused && !matches!(cursor.shape, CursorShape::Beam | CursorShape::Underline | CursorShape::Hidden);
+    let mut cursor_glyph = None;
+    let mut cursor_wide = false;
 
     for indexed in content.display_iter {
         let cell = &indexed.cell;
@@ -355,8 +359,21 @@ fn draw(
         if bg != theme.background {
             painter.rect_filled(cell_rect, 0.0, c32(bg));
         }
+        let at_cursor = block_cursor && indexed.point == cursor.point;
+        if at_cursor {
+            cursor_wide = cell.flags.contains(Flags::WIDE_CHAR);
+        }
         if cell.c != ' ' && cell.c != '\t' && !cell.flags.contains(Flags::HIDDEN) {
-            painter.text(pos2(x, y), Align2::LEFT_TOP, cell.c, font.clone(), c32(fg));
+            // 光标下的字留到画完光标再画(反色),否则被光标盖住
+            let color = if at_cursor { c32(theme.background) } else { c32(fg) };
+            let galley = painter.layout_no_wrap(cell.c.to_string(), font.clone(), color);
+            // CJK 字形比两格窄:放在两格正中,字距才均匀(靠左放每个字后面会空出一截)
+            let dx = if cell.flags.contains(Flags::WIDE_CHAR) { ((width - galley.size().x) / 2.0).max(0.0) } else { 0.0 };
+            if at_cursor {
+                cursor_glyph = Some((pos2(x + dx, y), galley));
+            } else {
+                painter.galley(pos2(x + dx, y), galley, color);
+            }
         }
         if cell.flags.intersects(Flags::ALL_UNDERLINES) {
             let uy = y + ch - 1.0;
@@ -369,12 +386,11 @@ fn draw(
     }
 
     // 光标
-    let cursor = content.cursor;
     let cy = cursor.point.line.0 + offset;
     if cursor.shape != CursorShape::Hidden && cy >= 0 {
         let pos = pos2(rect.min.x + cursor.point.column.0 as f32 * cw, rect.min.y + cy as f32 * ch);
         let color = c32(theme.cursor);
-        let block = Rect::from_min_size(pos, vec2(cw, ch));
+        let block = Rect::from_min_size(pos, vec2(if cursor_wide { 2.0 * cw } else { cw }, ch));
         let _ = match (focused, cursor.shape) {
             (true, CursorShape::Beam) => {
                 painter.rect_filled(Rect::from_min_size(pos, vec2(2.0, ch)), 0.0, color)
@@ -384,9 +400,15 @@ fn draw(
                 0.0,
                 color,
             ),
-            (true, _) => painter.rect_filled(block, 0.0, color.gamma_multiply(0.6)),
+            (true, _) => {
+                let idx = painter.rect_filled(block, 1.5, color);
+                if let Some((at, galley)) = cursor_glyph {
+                    painter.galley(at, galley, c32(theme.background));
+                }
+                idx
+            }
             (false, _) => {
-                painter.rect_stroke(block, 0.0, Stroke::new(1.0, color), egui::StrokeKind::Inside)
+                painter.rect_stroke(block, 1.5, Stroke::new(1.0, color.gamma_multiply(0.7)), egui::StrokeKind::Inside)
             }
         };
 

@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use egui::{Color32, Key, RichText};
 
 use vg_core::{Config, Settings, VoiceEngineKind};
 
@@ -14,12 +13,12 @@ use crate::loader_panel::LoaderPanel;
 use crate::monitor::Monitor;
 use crate::pipeline::{Pipeline, PipelineEvent, VoiceMode};
 use crate::ptt::PttAction;
-use crate::shortcuts::{self, Action};
+use crate::shortcuts::Action;
 use crate::split::{Axis, Dir};
-use crate::terminal::search::{SearchResult, SearchState};
+use crate::terminal::search::SearchState;
 use crate::terminal::session::{GridSize, TerminalSession};
 use crate::terminal::view::{self, InputState, ViewOptions};
-use crate::widgets::{self, ERROR};
+use crate::style;
 use crate::workspace::Workspace;
 
 pub(crate) struct Pane {
@@ -35,10 +34,23 @@ pub(crate) struct Status {
     at: Option<Instant>,
 }
 
-/// 分屏之间的间隙(露出底色即分隔线)
-const SPLIT_GAP: f32 = 2.0;
+/// 分屏之间的间隙(露出底下的分隔线颜色)
+const SPLIT_GAP: f32 = 1.0;
 const FONT_MIN: f32 = 8.0;
 const FONT_MAX: f32 = 48.0;
+
+/// 状态栏语音胶囊的几种样子
+#[derive(Clone, Debug)]
+pub(crate) enum VoiceUi {
+    /// 可以说话;带引擎名
+    Idle(String),
+    /// 没有可用的引擎;带原因
+    Unconfigured(String),
+    Off,
+    Recording { secs: f32, levels: Vec<f32> },
+    /// 识别 / 纠错 / 生成命令中;带阶段名
+    Working(String),
+}
 
 pub struct VoiceGhosttyApp {
     pub(crate) config: Config,
@@ -64,6 +76,12 @@ pub struct VoiceGhosttyApp {
     show_help: bool,
     confirm_quit: bool,
     quit_confirmed: bool,
+    /// 录音开始的时刻与最近的电平(状态栏波形,最新的在最后)
+    rec_started: Option<Instant>,
+    levels: VecDeque<f32>,
+    level_sampled: Option<Instant>,
+    #[cfg(test)]
+    preview_voice: Option<VoiceUi>,
 }
 
 pub fn effective_config(settings: &Settings) -> Config {
@@ -78,7 +96,7 @@ impl VoiceGhosttyApp {
         let settings = Settings::load();
         let config = effective_config(&settings);
         crate::fonts::install(&cc.egui_ctx, &config.font_family);
-        widgets::apply_visuals(&cc.egui_ctx, &config.theme());
+        style::apply(&cc.egui_ctx, &config.theme());
 
         vg_voice::preload(&config.voice);
         // 把 Ollama 冷加载挪到用户开口之前;服务没开会立即失败,无副作用
@@ -108,6 +126,11 @@ impl VoiceGhosttyApp {
             show_help: false,
             confirm_quit: false,
             quit_confirmed: false,
+            rec_started: None,
+            levels: VecDeque::new(),
+            level_sampled: None,
+            #[cfg(test)]
+            preview_voice: None,
         };
         if let Some(pane) = app.spawn_pane(&cc.egui_ctx) {
             app.ws.add_tab(pane);
@@ -167,7 +190,7 @@ impl VoiceGhosttyApp {
 
     pub(crate) fn reload_config(&mut self, ctx: &egui::Context) {
         self.config = effective_config(&self.settings);
-        widgets::apply_visuals(ctx, &self.config.theme());
+        style::apply(ctx, &self.config.theme());
         if let Err(e) = self.settings.save() {
             self.set_status(format!("设置保存失败:{e}"), true);
         }
@@ -303,6 +326,18 @@ impl VoiceGhosttyApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
+        // 录音电平:约每 40ms 取一次,推进状态栏波形
+        if self.pipeline.is_recording() {
+            let due = self.level_sampled.is_none_or(|t| t.elapsed() >= Duration::from_millis(40));
+            if due {
+                self.levels.push_back(self.pipeline.level());
+                while self.levels.len() > chrome::WAVE_BARS {
+                    self.levels.pop_front();
+                }
+                self.level_sampled = Some(Instant::now());
+            }
+        }
+
         while let Ok(event) = self.pipeline.rx.try_recv() {
             match event {
                 PipelineEvent::Stage(s) => self.set_status(s, false),
@@ -329,7 +364,11 @@ impl VoiceGhosttyApp {
     fn on_ptt(&mut self, action: PttAction) {
         match action {
             PttAction::StartRecording => match self.pipeline.start(&self.config) {
-                Ok(()) => self.set_status("正在听…松开空格(或再按一次录音快捷键)结束", false),
+                Ok(()) => {
+                    self.rec_started = Some(Instant::now());
+                    self.levels = std::iter::repeat_n(0.0, chrome::WAVE_BARS).collect();
+                    self.status = Status::default();
+                }
                 Err(e) => self.set_status(e, true),
             },
             PttAction::StopRecording => {
@@ -341,194 +380,6 @@ impl VoiceGhosttyApp {
             }
             _ => {}
         }
-    }
-
-    // MARK: 标签栏
-
-    fn tab_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            let mut close = None;
-            let mut select = None;
-            for i in 0..self.ws.tabs.len() {
-                let statuses: Vec<_> = self.ws.tabs[i]
-                    .panes()
-                    .iter()
-                    .filter_map(|id| self.ws.panes.get(id))
-                    .map(|p| p.session.shared.status())
-                    .collect();
-                widgets::status_dots(ui, &statuses);
-
-                if let Some((ri, draft)) = self.renaming.as_mut().filter(|(ri, _)| *ri == i) {
-                    let edit = ui.add(egui::TextEdit::singleline(draft).desired_width(120.0));
-                    edit.request_focus();
-                    let (enter, esc) = ui.input(|inp| (inp.key_pressed(Key::Enter), inp.key_pressed(Key::Escape)));
-                    if esc {
-                        self.renaming = None;
-                    } else if enter || edit.lost_focus() {
-                        let title = draft.trim().to_string();
-                        let idx = *ri;
-                        self.ws.tabs[idx].custom_title = (!title.is_empty()).then_some(title);
-                        self.renaming = None;
-                    }
-                    continue;
-                }
-
-                let label = format!("{} {}", i + 1, widgets::truncate(&self.tab_title(i), 28));
-                let hover = self.ws.tabs[i]
-                    .panes()
-                    .iter()
-                    .filter_map(|id| self.ws.panes.get(id))
-                    .map(|p| p.session.title.clone())
-                    .collect::<Vec<_>>()
-                    .join(" | ");
-                let r = ui.selectable_label(i == self.ws.active_tab, label).on_hover_text(hover);
-                if r.double_clicked() {
-                    self.renaming = Some((i, self.ws.tabs[i].custom_title.clone().unwrap_or_default()));
-                } else if r.clicked() {
-                    select = Some(i);
-                }
-                if r.middle_clicked() {
-                    close = Some(i);
-                }
-            }
-            if ui.button("＋").on_hover_text(format!("新标签页 ({})", Action::NewTab.label())).clicked() {
-                self.new_tab(ui.ctx());
-            }
-            if let Some(i) = select {
-                self.ws.select_tab(i);
-            }
-            if let Some(i) = close {
-                drop(self.ws.close_tab(i));
-                if self.ws.tabs.is_empty() {
-                    self.quit_confirmed = true;
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-            }
-        });
-    }
-
-    // MARK: 搜索栏
-
-    fn search_bar(&mut self, ui: &mut egui::Ui) {
-        let Some(pane) = self.ws.active_pane_mut() else { return };
-        let mut close = false;
-        ui.horizontal(|ui| {
-            ui.label("🔍");
-            let edit = ui.add(
-                egui::TextEdit::singleline(&mut pane.search.query)
-                    .hint_text("搜索历史(回车更早,⇧回车更新,Esc 关闭)")
-                    .desired_width(320.0),
-            );
-            if self.search_focus {
-                edit.request_focus();
-                self.search_focus = false;
-            }
-            let (enter, shift, esc) =
-                ui.input(|i| (i.key_pressed(Key::Enter), i.modifiers.shift, i.key_pressed(Key::Escape)));
-            let mut step = None;
-            if edit.changed() {
-                pane.search.reset();
-                step = Some(false);
-            }
-            if enter && edit.lost_focus() {
-                // 回车会让单行输入框失焦:找完把焦点还给输入框,方便连按
-                step = Some(shift);
-                edit.request_focus();
-            }
-            if ui.small_button("▲").on_hover_text("更早").clicked() {
-                step = Some(false);
-            }
-            if ui.small_button("▼").on_hover_text("更新").clicked() {
-                step = Some(true);
-            }
-            if let Some(forward) = step {
-                self.search_note = match pane.search.step(&pane.session, forward) {
-                    SearchResult::Found | SearchResult::Empty => None,
-                    SearchResult::NotFound => Some("没有找到".into()),
-                };
-            }
-            if let Some(n) = &self.search_note {
-                ui.colored_label(ERROR, n);
-            }
-            if esc || ui.small_button("✕").clicked() {
-                close = true;
-            }
-        });
-        if close {
-            self.search_open = false;
-            self.search_note = None;
-            pane.session.term.lock().selection = None;
-        }
-    }
-
-    // MARK: 状态栏
-
-    fn status_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            for mode in [VoiceMode::Dictation, VoiceMode::NaturalLanguage] {
-                if ui
-                    .selectable_label(self.mode == mode, mode.label())
-                    .on_hover_text(format!("切换:{}", Action::ToggleMode.label()))
-                    .clicked()
-                {
-                    self.mode = mode;
-                }
-            }
-            ui.separator();
-
-            if self.pipeline.is_recording() {
-                let level = (self.pipeline.level() * 8.0).clamp(0.0, 1.0);
-                if ui.button(RichText::new("● REC").color(Color32::from_rgb(230, 70, 70))).on_hover_text("点击停止").clicked() {
-                    self.on_ptt(PttAction::StopRecording);
-                }
-                ui.add(egui::ProgressBar::new(level).desired_width(80.0).desired_height(8.0));
-                ui.ctx().request_repaint_after(Duration::from_millis(50));
-            } else if self.pipeline.is_busy() {
-                ui.spinner();
-            } else {
-                let engine = match vg_voice::build_engine(&self.config.voice) {
-                    Ok(e) => e.name(),
-                    Err(_) if self.config.voice.engine == VoiceEngineKind::Off => "语音已关闭".into(),
-                    Err(_) => "未配置语音引擎".into(),
-                };
-                let r = ui.add(egui::Label::new(RichText::new(format!("🎤 按住空格说话 · {engine}")).weak()).sense(egui::Sense::click()));
-                if r.on_hover_text(format!("点击开始录音({})", Action::ToggleRecording.label())).clicked() {
-                    self.on_ptt(PttAction::StartRecording);
-                }
-            }
-            ui.separator();
-
-            // 状态文字 15 秒后淡出(错误保留到下一次操作)
-            let fresh = self.status.at.is_some_and(|t| t.elapsed() < Duration::from_secs(15));
-            if fresh || self.status.is_error {
-                let color = if self.status.is_error { ERROR } else { ui.visuals().text_color() };
-                ui.label(RichText::new(&self.status.text).color(color));
-            }
-
-            let usage = self.active_session().and_then(|s| s.shared.usage());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("⚙").on_hover_text(format!("设置({})", Action::Settings.label())).clicked() {
-                    self.show_settings = !self.show_settings;
-                }
-                if ui.button("⌨").on_hover_text(format!("快捷键({})", Action::Help.label())).clicked() {
-                    self.show_help = !self.show_help;
-                }
-                if ui
-                    .button("🧩")
-                    .on_hover_text(format!(
-                        "加载器({}):扫描设置里添加的文件夹中的插件、技能、Agent,勾选的会加载进当前目录",
-                        Action::Loader.label()
-                    ))
-                    .clicked()
-                {
-                    self.toggle_loader();
-                }
-                self.projects_menu(ui);
-                if let Some(usage) = usage {
-                    widgets::claude_meter(ui, &usage);
-                }
-            });
-        });
     }
 
     // MARK: 🧩 与常用项目
@@ -546,8 +397,11 @@ impl VoiceGhosttyApp {
         let dirs = self.config.skill_library_dirs.clone();
         let mut collapsed = self.settings.loader_groups_collapsed.clone();
         let mut output = None;
-        egui::Window::new("🧩 加载器").open(&mut open).resizable(false).default_width(380.0).show(ctx, |ui| {
-            ui.set_width(380.0);
+        crate::kit::window("加载器").anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+            ui.set_width(420.0);
+            if crate::kit::window_header(ui, "加载器", Some("把技能、Agent、插件加载进当前目录")) {
+                open = false;
+            }
             output = Some(self.loader.show(ui, cwd.as_deref(), &dirs, &mut collapsed));
         });
         self.show_loader = open;
@@ -565,93 +419,6 @@ impl VoiceGhosttyApp {
         }
     }
 
-    /// 常用项目:cd 进入目录并启动 claude(发送到当前窗格)
-    fn projects_menu(&mut self, ui: &mut egui::Ui) {
-        let mut launch = None;
-        let mut remove = None;
-        let mut add = false;
-        ui.menu_button("✨", |ui| {
-            let mut dirs = self.settings.claude_dirs.clone();
-            dirs.sort_by_key(|d| (widgets::dir_name(d).to_lowercase(), d.clone()));
-            if dirs.is_empty() {
-                ui.label(RichText::new("还没有保存的目录 —— 用「添加目录…」").small().weak());
-            }
-            for dir in dirs {
-                ui.horizontal(|ui| {
-                    if ui.button(format!("📁 {}", widgets::dir_name(&dir))).on_hover_text(dir.display().to_string()).clicked() {
-                        launch = Some(dir.clone());
-                        ui.close();
-                    }
-                    if ui.small_button("🗑").on_hover_text("移除").clicked() {
-                        remove = Some(dir.clone());
-                    }
-                });
-            }
-            ui.separator();
-            if ui.button("＋ 添加目录…").clicked() {
-                add = true;
-                ui.close();
-            }
-        })
-        .response
-        .on_hover_text("常用项目:cd 进入目录并启动 Claude(发送到当前窗格)");
-
-        if let Some(dir) = launch {
-            if let Some(s) = self.active_session() {
-                s.write(vg_core::shell::launch_claude_command(&dir).into_bytes());
-            }
-        }
-        if let Some(dir) = remove {
-            self.settings.claude_dirs.retain(|d| *d != dir);
-            let _ = self.settings.save();
-        }
-        if add {
-            if let Some(dir) =
-                rfd::FileDialog::new().set_title("选择一个项目目录(点击菜单项会 cd 进入并启动 claude)").pick_folder()
-            {
-                if !self.settings.claude_dirs.contains(&dir) {
-                    self.settings.claude_dirs.push(dir);
-                    let _ = self.settings.save();
-                }
-            }
-        }
-    }
-
-    // MARK: 浮窗
-
-    fn help_window(&mut self, ctx: &egui::Context) {
-        egui::Window::new("快捷键").open(&mut self.show_help).resizable(false).show(ctx, |ui| {
-            for (title, rows) in shortcuts::help_sections() {
-                ui.label(RichText::new(title).strong());
-                egui::Grid::new(title).num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
-                    for (keys, desc) in rows {
-                        ui.label(RichText::new(keys).monospace());
-                        ui.label(desc);
-                        ui.end_row();
-                    }
-                });
-                ui.add_space(6.0);
-            }
-        });
-    }
-
-    fn quit_dialog(&mut self, ctx: &egui::Context) {
-        egui::Modal::new(egui::Id::new("confirm-quit")).show(ctx, |ui| {
-            ui.label(RichText::new("退出 VoiceGhostty?").strong());
-            ui.label("所有标签页里的 shell(以及其中运行的程序)都会被挂断。");
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                if ui.button("退出").clicked() {
-                    self.quit_confirmed = true;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-                if ui.button("取消").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
-                    self.confirm_quit = false;
-                }
-            });
-        });
-    }
-
     // MARK: 终端区
 
     fn terminals(&mut self, ui: &mut egui::Ui) {
@@ -660,6 +427,7 @@ impl VoiceGhosttyApp {
         let (active, split) = (tab.active, tab.is_split());
         let window_focused = ui.input(|i| i.focused);
         let theme = self.config.theme();
+        let p = style::palette(ui.ctx());
         // 键盘焦点归终端,除非搜索框或改名框在用
         let terminal_owns_keyboard = !self.search_open && self.renaming.is_none();
 
@@ -675,16 +443,18 @@ impl VoiceGhosttyApp {
                 ptt_enabled: self.config.voice.engine != VoiceEngineKind::Off && !self.pipeline.is_busy(),
                 grab_focus: is_active && terminal_owns_keyboard,
             };
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt(("pane", id)));
+            // 底色铺满整个窗格,文字往里缩一点:贴边的字不好读
+            ui.painter().rect_filled(rect, 0.0, p.term);
+            let inner = rect.shrink2(style::TERM_PAD);
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).id_salt(("pane", id)));
             let out = view::show(&mut child, &mut pane.session, &mut pane.input, &opts);
             if out.clicked {
                 clicked = Some(id);
             }
             actions.extend(out.actions);
-            // 分屏时给当前窗格描一圈,看得出语音和输入会去哪
-            if split && is_active {
-                let stroke = egui::Stroke::new(1.0, ui.visuals().selection.stroke.color.gamma_multiply(0.7));
-                ui.painter().rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Inside);
+            // 分屏时其余窗格压暗一层,看得出语音和输入会去哪
+            if split && !is_active {
+                ui.painter().rect_filled(rect, 0.0, style::alpha(p.chrome, 0.42));
             }
             // 你正盯着的那个窗格保持灰色;分屏时每个窗格都照常推进(两边都能看到黄/绿)。
             // 窗口到后台后它恰恰是最值得报告的那个,于是也照常推进
@@ -730,16 +500,23 @@ impl eframe::App for VoiceGhosttyApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!("{} — VoiceGhostty", s.title)));
         }
 
-        egui::Panel::top("tabs").show(ui, |ui| self.tab_bar(ui));
-        if self.search_open {
-            egui::Panel::top("search").show(ui, |ui| self.search_bar(ui));
-        }
-        egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
+        let p = style::palette(&ctx);
+        egui::Panel::top("tabs")
+            .exact_size(style::BAR_H)
+            .frame(egui::Frame::NONE.fill(p.chrome).inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 0 }))
+            .show(ui, |ui| self.tab_bar(ui));
+        egui::Panel::bottom("status")
+            .exact_size(style::STATUS_H)
+            .frame(egui::Frame::NONE.fill(p.chrome).inner_margin(egui::Margin::symmetric(8, 0)))
+            .show(ui, |ui| self.status_bar(ui));
 
-        let bg = self.config.theme().background;
-        egui::CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(Color32::from_rgb(bg.0, bg.1, bg.2)).inner_margin(4.0))
+        // 底色是分隔线的颜色:分屏的缝隙露出来就是一条细线
+        let central = egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(p.border))
             .show(ui, |ui| self.terminals(ui));
+        if self.search_open {
+            self.search_box(&ctx, central.response.rect);
+        }
 
         if self.show_settings {
             self.settings_window(&ctx);
@@ -755,3 +532,10 @@ impl eframe::App for VoiceGhosttyApp {
         }
     }
 }
+
+#[path = "chrome.rs"]
+mod chrome;
+
+#[cfg(test)]
+#[path = "shots.rs"]
+mod shots;

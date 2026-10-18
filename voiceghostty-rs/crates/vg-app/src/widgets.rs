@@ -4,17 +4,11 @@ use std::path::{Path, PathBuf};
 
 use egui::{Color32, RichText};
 
+
 use vg_core::claude_usage::ContextUsage;
-use vg_core::{SessionStatus, Theme};
+use vg_core::SessionStatus;
 
-pub const WARN: Color32 = Color32::from_rgb(235, 150, 50);
-pub const ERROR: Color32 = Color32::from_rgb(230, 90, 90);
-
-pub fn apply_visuals(ctx: &egui::Context, theme: &Theme) {
-    let bg = theme.background;
-    let luminance = 0.299 * bg.0 as f32 + 0.587 * bg.1 as f32 + 0.114 * bg.2 as f32;
-    ctx.set_visuals(if luminance > 128.0 { egui::Visuals::light() } else { egui::Visuals::dark() });
-}
+use crate::style::{self, Palette};
 
 pub fn language_label(code: &str) -> &'static str {
     match code {
@@ -32,38 +26,24 @@ pub fn truncate(s: &str, n: usize) -> String {
     }
 }
 
-pub fn status_color(status: SessionStatus) -> Color32 {
+pub fn status_color_of(p: &Palette, status: SessionStatus) -> Color32 {
     match status {
-        SessionStatus::Normal => Color32::from_gray(110),
-        SessionStatus::Busy => Color32::from_rgb(230, 190, 40),
-        SessionStatus::Done => Color32::from_rgb(70, 200, 90),
-    }
-}
-
-/// 一个标签页的状态灯:每个分屏一个圆点;分得太多画不下时退回一个汇总圆点(done > busy > normal)
-pub fn status_dots(ui: &mut egui::Ui, statuses: &[SessionStatus]) {
-    const MAX_DOTS: usize = 4;
-    let shown: Vec<SessionStatus> = if statuses.len() > MAX_DOTS {
-        vec![statuses.iter().copied().max_by_key(|s| s.priority()).unwrap_or_default()]
-    } else {
-        statuses.to_vec()
-    };
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(shown.len() as f32 * 9.0, 8.0), egui::Sense::hover());
-    for (i, s) in shown.iter().enumerate() {
-        let c = egui::pos2(rect.min.x + 4.0 + i as f32 * 9.0, rect.center().y);
-        ui.painter().circle_filled(c, 4.0, status_color(*s));
+        SessionStatus::Normal => p.text3,
+        SessionStatus::Busy => p.busy,
+        SessionStatus::Done => p.done,
     }
 }
 
 /// 当前窗格里 Claude Code 的上下文占用:进度条 + 数字。70% 起橙、90% 起红(压缩大约在 90% 发生)
 pub fn claude_meter(ui: &mut egui::Ui, usage: &ContextUsage) {
+    let p = style::palette(ui.ctx());
     let fraction = usage.fraction() as f32;
     let color = if fraction >= 0.9 {
-        Color32::from_rgb(230, 80, 80)
+        p.error
     } else if fraction >= 0.7 {
-        Color32::from_rgb(240, 150, 50)
+        p.warn
     } else {
-        ui.visuals().weak_text_color()
+        p.accent
     };
     let mut tip = format!(
         "上下文:{} / {} tokens({}%)\n统计到 claude 上一次请求 —— 正在进行的那次还没计入。",
@@ -80,14 +60,16 @@ pub fn claude_meter(ui: &mut egui::Ui, usage: &ContextUsage) {
     tip.push_str(&format!("\n{}", usage.transcript.display()));
 
     // right_to_left 布局:先加的在右边
-    ui.label(RichText::new(format!("{} · {}%", usage.short(), usage.percent())).color(color).monospace())
-        .on_hover_text(&tip);
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(42.0, 4.0), egui::Sense::hover());
-    ui.painter().rect_filled(rect, 2.0, ui.visuals().faint_bg_color);
+    let text_color = if fraction >= 0.7 { color } else { p.text2 };
+    let r = ui.label(RichText::new(format!("{}%", usage.percent())).font(crate::fonts::medium(11.5)).color(text_color));
+    let r = r.union(ui.label(RichText::new(usage.short()).font(egui::FontId::monospace(11.0)).color(p.text3)));
+    let (rect, bar) = ui.allocate_exact_size(egui::vec2(48.0, 4.0), egui::Sense::hover());
+    ui.painter().rect_filled(rect, 2.0, p.control);
     let mut fill = rect;
-    fill.set_width((42.0 * fraction).max(2.0));
+    fill.set_width((48.0 * fraction).max(3.0));
     ui.painter().rect_filled(fill, 2.0, color);
-    ui.label(RichText::new("claude").weak());
+    let label = ui.label(RichText::new("claude").font(crate::fonts::medium(11.5)).color(p.text3));
+    r.union(bar).union(label).on_hover_text(&tip);
 }
 
 pub fn dir_name(dir: &Path) -> String {

@@ -2,6 +2,8 @@
 
 mod app;
 mod fonts;
+mod icons;
+mod kit;
 mod loader_panel;
 mod monitor;
 mod pipeline;
@@ -9,6 +11,7 @@ mod ptt;
 mod settings_ui;
 mod shortcuts;
 mod split;
+mod style;
 mod workspace;
 mod terminal;
 mod widgets;
