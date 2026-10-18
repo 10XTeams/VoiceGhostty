@@ -46,7 +46,7 @@ Rust 编写,macOS 预编译发布,Linux / Windows 可从源码构建。按住说
 | 🌏 **中英识别** | 识别语言 `zh` / `en` / `auto`,默认自动加标点,主要口述 shell 命令时建议关掉。 |
 | 🚦 **状态灯** | 每个标签页和分屏都有灰 / 黄 / 绿三态点:空闲、执行中、已完成等你处理。zsh 下靠 shell 集成精确判断;`claude`、`vim` 这类全屏程序按输出和响铃推断。你正在看的窗格保持灰色;窗口在后台也照常变色。 |
 | 🔔 **完成提示音** | 窗格变绿的那一刻响一声合成提示音,5 秒内最多一次,设置里可关。 |
-| 🗂 **标签与嵌套分屏** | <kbd>⌘T</kbd> / <kbd>⌘W</kbd>、<kbd>⌘1…⌘9</kbd>。<kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> 拆的是**当前分屏**且可反复按:连按三次 <kbd>⌘D</kbd> 得到三等分,换个方向再拆就是网格。<kbd>⌘⌥</kbd>+方向键按分屏树切焦点。标签名跟随工作目录,双击改名,中键关闭。 |
+| 🗂 **标签与嵌套分屏** | <kbd>⌘T</kbd> / <kbd>⌘W</kbd>、<kbd>⌘1…⌘9</kbd>。<kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> 拆的是**当前分屏**且可反复按:连按三次 <kbd>⌘D</kbd> 得到三等分,换个方向再拆就是网格;新格在原窗格当前目录里开 shell。<kbd>⌘⌥</kbd>+方向键按分屏树切焦点。标签名跟随工作目录,双击改名,中键关闭。 |
 | ↗️ **分屏跨标签页移动** | <kbd>⌘⌃1…8</kbd> 把当前格送到第 N 个标签页,<kbd>⌘⌃←→</kbd> 送到相邻标签页,<kbd>⌘⌃T</kbd> 移出成新标签页。shell 不中断、滚动历史一起过去。 |
 | 🧩 **动态加载技能 / Agent** | 勾选式面板(<kbd>⌘L</kbd>):自动识别文件夹里的技能(带 `SKILL.md` 的子文件夹)和 Agent(带 front matter 的 `.md`),应用后复制进 `cwd/.claude/skills/` 与 `cwd/.claude/agents/`,已存在的不覆盖,取消勾选即移除,随后自动发送 `/reload-skills` 与 `/reload-plugins`。 |
 | 🧩 **项目级插件** | 文件夹带 `.claude-plugin/marketplace.json`(或 `plugin.json`)时,它的插件出现在「插件」页签。勾选后只改 `cwd/.claude/settings.local.json` 里的 `enabledPlugins` 与 `extraKnownMarketplaces`,其他设置原样保留。 |

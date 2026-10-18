@@ -132,7 +132,7 @@ impl VoiceGhosttyApp {
             #[cfg(test)]
             preview_voice: None,
         };
-        if let Some(pane) = app.spawn_pane(&cc.egui_ctx) {
+        if let Some(pane) = app.spawn_pane(&cc.egui_ctx, None) {
             app.ws.add_tab(pane);
         }
         app
@@ -140,10 +140,11 @@ impl VoiceGhosttyApp {
 
     // MARK: 窗格
 
-    fn spawn_pane(&mut self, ctx: &egui::Context) -> Option<Pane> {
+    /// `cwd`:新 shell 的起始目录,None 为家目录
+    fn spawn_pane(&mut self, ctx: &egui::Context, cwd: Option<PathBuf>) -> Option<Pane> {
         // 初始尺寸随便给,首帧布局时会按实际区域 resize
         let size = GridSize { cols: 80, rows: 24, cell_w: 8, cell_h: 16 };
-        match TerminalSession::spawn(ctx, size, self.config.scrollback, &self.settings, self.ws.next_pane_id()) {
+        match TerminalSession::spawn(ctx, size, self.config.scrollback, &self.settings, self.ws.next_pane_id(), cwd) {
             Ok(session) => {
                 self.monitor.watch(&session.shared);
                 Some(Pane { session, input: InputState::default(), search: SearchState::default() })
@@ -156,13 +157,16 @@ impl VoiceGhosttyApp {
     }
 
     fn new_tab(&mut self, ctx: &egui::Context) {
-        if let Some(pane) = self.spawn_pane(ctx) {
+        if let Some(pane) = self.spawn_pane(ctx, None) {
             self.ws.add_tab(pane);
         }
     }
 
+    /// 分屏出来的新格接着在原窗格的目录里开 shell。直接问操作系统拿最新的目录,
+    /// 比轮询缓存的 cwd 新鲜(刚 cd 完立刻 ⌘D 也对)。
     fn split(&mut self, ctx: &egui::Context, axis: Axis) {
-        if let Some(pane) = self.spawn_pane(ctx) {
+        let cwd = self.active_session().and_then(|s| s.current_directory()).or_else(|| self.active_cwd());
+        if let Some(pane) = self.spawn_pane(ctx, cwd) {
             self.ws.split_active(pane, axis);
         }
     }

@@ -223,13 +223,17 @@ pub struct TerminalSession {
 }
 
 impl TerminalSession {
+    /// `cwd`:shell 的起始目录。分屏时传入原窗格的目录,新格就接着在同一处干活;
+    /// None、或目录已经不存在时回到家目录。
     pub fn spawn(
         ctx: &egui::Context,
         size: GridSize,
         scrollback: usize,
         settings: &Settings,
         id: u64,
+        cwd: Option<PathBuf>,
     ) -> anyhow::Result<TerminalSession> {
+        let cwd = cwd.filter(|d| d.is_dir()).unwrap_or_else(paths::home_dir);
         let (tx, events) = mpsc::channel();
         let signals = Arc::new(Signals::new());
         let proxy = EventProxy { tx, ctx: ctx.clone(), signals: signals.clone() };
@@ -246,7 +250,7 @@ impl TerminalSession {
         let program = shell::default_shell();
         let options = tty::Options {
             shell: Some(tty::Shell::new(program.clone(), login_args(&program))),
-            working_directory: Some(paths::home_dir()),
+            working_directory: Some(cwd.clone()),
             env: shell::shell_environment(&program, settings, &state_file).into_iter().collect(),
             ..tty::Options::default()
         };
@@ -267,7 +271,7 @@ impl TerminalSession {
             usage_watcher: Mutex::new(UsageWatcher::default()),
             usage: Mutex::new(None),
             logger: Mutex::new(settings.save_history.then(|| SessionLogger::new(paths::history_dir()))),
-            cwd: Mutex::new(Some(paths::home_dir())),
+            cwd: Mutex::new(Some(cwd)),
             probe,
             shell_pid,
             state_file,
@@ -419,12 +423,38 @@ mod tests {
         false
     }
 
+    /// 分屏继承目录:传入的 cwd 就是 shell 的起始目录;不存在的目录回到家目录
+    #[test]
+    fn spawn_starts_in_given_directory() {
+        let ctx = egui::Context::default();
+        let size = GridSize { cols: 80, rows: 24, cell_w: 8, cell_h: 16 };
+        let dir = tempfile::tempdir().unwrap();
+        let want = dir.path().canonicalize().unwrap();
+
+        let s = TerminalSession::spawn(&ctx, size, 100, &test_settings(), 92, Some(want.clone())).unwrap();
+        assert_eq!(s.shared.cwd(), Some(want.clone()));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut got = None;
+        while Instant::now() < deadline {
+            got = s.current_directory().and_then(|p| p.canonicalize().ok());
+            if got.as_ref() == Some(&want) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert_eq!(got, Some(want), "shell did not start in the requested directory");
+
+        let gone = dir.path().join("does-not-exist");
+        let s = TerminalSession::spawn(&ctx, size, 100, &test_settings(), 91, Some(gone)).unwrap();
+        assert_eq!(s.shared.cwd(), Some(paths::home_dir()));
+    }
+
     /// 端到端:真 shell + PTY + 模拟器。typed 文本不带回车,不会执行;回车后才执行
     #[test]
     fn runs_a_real_shell() {
         let ctx = egui::Context::default();
         let size = GridSize { cols: 100, rows: 30, cell_w: 8, cell_h: 16 };
-        let mut s = TerminalSession::spawn(&ctx, size, 1000, &test_settings(), 99).unwrap();
+        let mut s = TerminalSession::spawn(&ctx, size, 1000, &test_settings(), 99, None).unwrap();
 
         s.type_text("echo vg-$((40+2))");
         assert!(wait_for(&mut s, "echo vg-$((40+2))"), "typed text never echoed:\n{}", screen_text(&s));
@@ -461,7 +491,7 @@ mod tests {
         use crate::terminal::view::{self, InputState, ViewOptions};
         let ctx = egui::Context::default();
         let size = GridSize { cols: 80, rows: 24, cell_w: 8, cell_h: 16 };
-        let mut s = TerminalSession::spawn(&ctx, size, 1000, &test_settings(), 98).unwrap();
+        let mut s = TerminalSession::spawn(&ctx, size, 1000, &test_settings(), 98, None).unwrap();
         s.type_text("中文 and ascii");
         assert!(wait_for(&mut s, "ascii"));
 
@@ -491,7 +521,7 @@ mod tests {
         }
         let ctx = egui::Context::default();
         let size = GridSize { cols: 100, rows: 30, cell_w: 8, cell_h: 16 };
-        let mut s = TerminalSession::spawn(&ctx, size, 1000, &test_settings(), 97).unwrap();
+        let mut s = TerminalSession::spawn(&ctx, size, 1000, &test_settings(), 97, None).unwrap();
         let state_file = s.shared.state_file.clone();
 
         let deadline = Instant::now() + Duration::from_secs(15);
@@ -533,7 +563,7 @@ mod tests {
         use crate::terminal::view::{self, InputState, ViewOptions};
         let ctx = egui::Context::default();
         let size = GridSize { cols: 80, rows: 24, cell_w: 8, cell_h: 16 };
-        let mut s = TerminalSession::spawn(&ctx, size, 1000, &test_settings(), 96).unwrap();
+        let mut s = TerminalSession::spawn(&ctx, size, 1000, &test_settings(), 96, None).unwrap();
         s.type_text("vgword");
         assert!(wait_for(&mut s, "vgword"));
 
@@ -590,7 +620,7 @@ mod tests {
         use crate::terminal::search::{SearchResult, SearchState};
         let ctx = egui::Context::default();
         let size = GridSize { cols: 80, rows: 24, cell_w: 8, cell_h: 16 };
-        let s = TerminalSession::spawn(&ctx, size, 1000, &test_settings(), 95).unwrap();
+        let s = TerminalSession::spawn(&ctx, size, 1000, &test_settings(), 95, None).unwrap();
         s.write(&b"printf 'vgfind-one\\nfiller\\nvgfind-two\\n'\r"[..]);
         // 标记出现两次:一次在敲进去的命令里,一次在输出里
         let deadline = Instant::now() + Duration::from_secs(15);
@@ -628,8 +658,8 @@ mod tests {
         use crate::terminal::view::{self, InputState, ViewOptions};
         let ctx = egui::Context::default();
         let size = GridSize { cols: 40, rows: 20, cell_w: 8, cell_h: 16 };
-        let mut left = TerminalSession::spawn(&ctx, size, 100, &test_settings(), 93).unwrap();
-        let mut right = TerminalSession::spawn(&ctx, size, 100, &test_settings(), 94).unwrap();
+        let mut left = TerminalSession::spawn(&ctx, size, 100, &test_settings(), 93, None).unwrap();
+        let mut right = TerminalSession::spawn(&ctx, size, 100, &test_settings(), 94, None).unwrap();
         let (mut in_l, mut in_r) = (InputState::default(), InputState::default());
         let tree = Node::Leaf(1u64).inserting(2, 1, Axis::Horizontal);
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0));

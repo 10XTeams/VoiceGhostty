@@ -127,7 +127,9 @@ it each frame. Siblings share the space equally; there is no drag-to-resize.
 - <kbd>⌘D</kbd> splits the **active pane** right, <kbd>⌘⇧D</kbd> splits it down, and both repeat. Splitting along
   the axis a pane already sits on adds a **sibling**, so three <kbd>⌘D</kbd> in a row give three evenly-sized
   columns rather than a lopsided ½ + ¼ + ¼ nest. Splitting along the other axis replaces that leaf with a
-  two-child branch, which is what lets grids form. The new pane takes focus.
+  two-child branch, which is what lets grids form. The new pane takes focus and **starts its shell in the directory
+  the original pane is currently in** (read from the OS for that pane's shell, so splitting right after a `cd` lands in the
+  new directory; a directory that no longer exists falls back to home). <kbd>⌘T</kbd> still opens a new tab at home.
 - <kbd>⌘W</kbd> closes the active pane and moves focus to the visually previous one (to the right-hand one when the
   leftmost was closed); on the tab's last pane it closes the tab. A branch left holding one child collapses into that
   child, so closing panes never leaves empty scaffolding.
