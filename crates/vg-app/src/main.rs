@@ -5,6 +5,8 @@ mod fonts;
 mod icons;
 mod kit;
 mod loader_panel;
+#[cfg(target_os = "macos")]
+mod macos;
 mod monitor;
 mod pipeline;
 mod ptt;

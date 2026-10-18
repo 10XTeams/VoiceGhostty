@@ -493,7 +493,7 @@ Source: `crates/vg-core/src/config.rs`, `crates/vg-core/src/paths.rs`
   Result messages fade out after 15 s; errors stay until the next message.
 - Status bar, left to right: the voice-mode segmented control, the voice capsule (§ 1), the result of the last action;
   at the right end ✨ favourite projects, 🧩 loader, ⌨ shortcut reference, ⚙️ Settings, and the claude usage meter (§ 12).
-- **Closing the window asks first**: the system's close request is intercepted and a modal
+- **Closing the window asks first**: the system's close request is intercepted (on macOS the Quit menu item and <kbd>⌘Q</kbd> go the same way: at startup that item's action is changed from a direct `terminate:` to `performClose:`, the same path as the ✕ button, see `crates/vg-app/src/macos.rs`) and a modal
   "Quit VoiceGhostty?" states how many panes' shells would be hung up; <kbd>Return</kbd> quits, <kbd>Esc</kbd> cancels.
   Exceptions: closing the last split or tab with <kbd>⌘W</kbd> / ✕ is an explicit action and quits without asking, as
   does every shell exiting on its own.

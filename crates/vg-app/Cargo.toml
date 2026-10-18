@@ -23,6 +23,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# 只用来把菜单里的「退出」改成走关闭窗口的确认流程(见 src/macos.rs)
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSMenu", "NSMenuItem", "NSResponder"] }
+
 [dev-dependencies]
 tempfile = "3"
 egui_kittest = { version = "0.36", features = ["wgpu", "snapshot", "eframe"] }

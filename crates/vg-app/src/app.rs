@@ -76,6 +76,8 @@ pub struct VoiceGhosttyApp {
     show_help: bool,
     confirm_quit: bool,
     quit_confirmed: bool,
+    /// macOS:菜单「退出」(⌘Q)是否已改成走关闭窗口的确认流程;菜单可能晚于首帧建好,没改到就下一帧再试
+    quit_menu_patched: bool,
     /// 录音开始的时刻与最近的电平(状态栏波形,最新的在最后)
     rec_started: Option<Instant>,
     levels: VecDeque<f32>,
@@ -126,6 +128,7 @@ impl VoiceGhosttyApp {
             show_help: false,
             confirm_quit: false,
             quit_confirmed: false,
+            quit_menu_patched: !cfg!(target_os = "macos"),
             rec_started: None,
             levels: VecDeque::new(),
             level_sampled: None,
@@ -486,7 +489,12 @@ impl eframe::App for VoiceGhosttyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
 
-        // 关窗口先确认:会挂断所有 shell
+        #[cfg(target_os = "macos")]
+        if !self.quit_menu_patched {
+            self.quit_menu_patched = crate::macos::redirect_quit_to_close();
+        }
+
+        // 关窗口先确认:会挂断所有 shell(macOS 上 ⌘Q 也走这里,见 macos.rs)
         if ctx.input(|i| i.viewport().close_requested()) && !self.quit_confirmed {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.confirm_quit = true;
