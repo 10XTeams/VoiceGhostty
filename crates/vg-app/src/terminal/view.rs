@@ -95,7 +95,9 @@ pub fn show(
     let mut actions = Vec::new();
     if focused {
         handle_input(ui, session, state, opts, ch, response.hovered(), &mut actions);
-        // IME 候选框跟随光标
+        // IME 候选框跟随光标。egui-winit 告诉系统的是 `rect` 而不是 `cursor_rect`(它按单行输入框设计,
+        // 两者差不多大),系统再把候选框摆在这个矩形的下沿。终端占满整个窗格,传整块区域候选框就跑到窗格底部去了,
+        // 所以这里两个字段都给光标所在的那个格子。
         let cursor = session.term.lock().grid().cursor.point;
         let cursor_rect = Rect::from_min_size(
             pos2(rect.min.x + cursor.column.0 as f32 * cw, rect.min.y + cursor.line.0 as f32 * ch),
@@ -104,7 +106,7 @@ pub fn show(
         ui.ctx().output_mut(|o| {
             o.ime = Some(egui::output::IMEOutput {
                 purpose: egui::IMEPurpose::Terminal,
-                rect,
+                rect: cursor_rect,
                 cursor_rect,
                 should_interrupt_composition: false,
             })
