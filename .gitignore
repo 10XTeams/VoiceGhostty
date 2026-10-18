@@ -1,7 +1,6 @@
-.build/
+target/
 build/
 .DS_Store
-.swiftpm/
 
 # Local Claude Code skill library (personal, not part of the project)
 .claude/

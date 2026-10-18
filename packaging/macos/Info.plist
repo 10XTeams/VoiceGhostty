@@ -26,7 +26,5 @@
 	<string>NSApplication</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>VoiceGhostty needs microphone access to receive voice commands.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>VoiceGhostty needs speech recognition to turn what you say into command-line text.</string>
 </dict>
 </plist>

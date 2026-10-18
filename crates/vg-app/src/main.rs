@@ -14,6 +14,7 @@ mod split;
 mod style;
 mod workspace;
 mod terminal;
+mod version;
 mod widgets;
 
 fn main() -> eframe::Result {

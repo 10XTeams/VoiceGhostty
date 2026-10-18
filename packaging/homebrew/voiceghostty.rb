@@ -36,7 +36,8 @@ cask "voiceghostty" do
     all. If you would rather Gatekeeper stayed in charge, uninstall and build from source instead:
       https://github.com/10XTeams/VoiceGhostty#option-c--build-from-source
 
-    On first launch macOS will ask for Microphone and Speech Recognition access.
+    On first launch macOS will ask for Microphone access. For offline speech recognition, put a
+    whisper.cpp model (ggml-*.bin) into ~/.config/voiceghostty/models/ — see the README.
   EOS
 
   zap trash: [

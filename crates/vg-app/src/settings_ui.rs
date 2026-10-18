@@ -147,6 +147,12 @@ impl VoiceGhosttyApp {
                         }
                     }
                 });
+                // 版本 + 提交号:一眼确认跑的是哪个构建(市场版本跨构建不变,单看它分不出新旧)
+                ui.add_space(6.0);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new(format!("VoiceGhostty {}", crate::version::label())).font(style::small()).color(p.text3))
+                        .on_hover_text(crate::version::detail());
+                });
             });
         });
         if close {
