@@ -69,7 +69,7 @@ final class SessionLogger {
         var text = ""
         while nextRow < limit {
             if let line = terminal.getScrollInvariantLine(row: nextRow) {
-                text += line.translateToString(trimRight: true) + "\n"
+                text += line.screenText() + "\n"
             }
             nextRow += 1
         }

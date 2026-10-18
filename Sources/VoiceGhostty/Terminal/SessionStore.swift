@@ -56,9 +56,6 @@ final class TerminalSession: ObservableObject, Identifiable {
     /// host — see `ClaudeUsageWatcher`.
     let claudeUsage = ClaudeUsageWatcher()
 
-    /// Auto Clear for this pane (off unless the setting is on) — see `ClaudeAutoClear`.
-    private let autoClear = ClaudeAutoClear()
-
     init(config: Config) {
         controller = TerminalController(config: config)
         logger = AppSettings.historyEnabled ? SessionLogger() : nil
@@ -94,24 +91,11 @@ final class TerminalSession: ObservableObject, Identifiable {
         return true
     }
 
-    /// Re-read the context size of the Claude Code session in this pane, then let Auto Clear look at the
-    /// screen. Cheap when nothing changed (a directory listing and a stat), and both halves are a no-op
-    /// when the foreground process isn't claude — which is also what takes the meter off screen the moment
-    /// you quit it.
-    ///
-    /// The two are polled together because they need the same answer ("is claude in front of this pane, and
-    /// where?"), which costs a few syscalls worth asking once.
+    /// Re-read the context size of the Claude Code session in this pane. Cheap when nothing changed (a
+    /// directory listing and a stat), and a no-op when the foreground process isn't claude — which is also
+    /// what takes the meter off screen the moment you quit it.
     func pollClaude() {
-        let directory = controller.claudeWorkingDirectory
-        claudeUsage.refresh(directory: directory)
-        guard directory != nil, AppSettings.autoClearEnabled else { return }
-        // The reading is the one from claude's last completed request — see `ClaudeUsageWatcher`. That is
-        // the same response the marker was printed in, or the one before it; either way it is the size the
-        // clear is being asked about.
-        autoClear.evaluate(terminal: controller.terminal,
-                           tokens: claudeUsage.usage?.tokens) { [weak self] text in
-            self?.controller.type(text)
-        }
+        claudeUsage.refresh(directory: controller.claudeWorkingDirectory)
     }
 
     // MARK: - Transcript
@@ -439,7 +423,7 @@ final class SessionStore: ObservableObject {
     private var tickCount = 0
     private let historyFlushEvery = 10
 
-    /// Claude Code's context reading — and with it the Auto Clear scan — is refreshed every
+    /// Claude Code's context reading is refreshed every
     /// `claudeUsageEvery` ticks (~2s). The transcript only gains a record per completed request, so polling
     /// it faster would just stat the same file again.
     private let claudeUsageEvery = 4

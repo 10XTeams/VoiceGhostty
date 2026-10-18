@@ -46,18 +46,6 @@ struct ContentView: View {
                 claudeOverlay
             }
         }
-        // Auto Clear types into the terminal on its own; the strip says so, so a pane that suddenly
-        // cleared itself is never a mystery. See `ClaudeAutoClear`.
-        .onReceive(NotificationCenter.default.publisher(for: .claudeAutoClearFired)) { _ in
-            let message = loc("Auto Clear: sent \(ClaudeAutoClear.clearCommand), then \(ClaudeAutoClear.followUpCommand)",
-                              "Auto Clear:已发送 \(ClaudeAutoClear.clearCommand),随后 \(ClaudeAutoClear.followUpCommand)")
-            statusText = message
-            // Retire it on its own: it reports something that already happened, and the strip's other
-            // messages are all about what you are doing right now.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
-                if statusText == message { statusText = "" }
-            }
-        }
         .onAppear {
             speech.onFinalResult = { text in handleRecognized(text) }
             // Push-to-talk: press to record, release to stop
