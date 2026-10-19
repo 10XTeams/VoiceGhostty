@@ -115,7 +115,7 @@ pub fn palette(ctx: &egui::Context) -> Palette {
 // MARK: 尺寸
 
 /// 标签栏、状态栏的高度
-pub const BAR_H: f32 = 38.0;
+pub const BAR_H: f32 = 40.0;
 pub const STATUS_H: f32 = 34.0;
 /// 终端文字离窗格边缘的距离
 pub const TERM_PAD: Vec2 = Vec2::new(10.0, 6.0);
@@ -125,8 +125,8 @@ pub const RADIUS_LG: u8 = 12;
 pub const BODY: f32 = 13.0;
 pub const SMALL: f32 = 11.5;
 pub const TITLE: f32 = 15.0;
-/// 标签页标题,与 macOS 原生窗口标题栏字号(13pt)一致
-pub const TAB: f32 = 13.0;
+/// 标签页标题,与窗口标题同字号;标签本体高 28,与 macOS 原生标题栏一致
+pub const TAB: f32 = 15.0;
 
 pub fn body() -> FontId {
     FontId::proportional(BODY)

@@ -29,6 +29,7 @@ impl VoiceGhosttyApp {
     pub(crate) fn tab_bar(&mut self, ui: &mut Ui) {
         let p = palette(ui.ctx());
         let full = ui.max_rect();
+        // 标签本体 28 高(BAR_H 40 - 上边距 6 - 顶部留白 6),与 macOS 标题栏同高
         let tab_h = full.height() - 6.0;
         let mut active_span = None;
         let mut select = None;
@@ -51,7 +52,7 @@ impl VoiceGhosttyApp {
                 let title_font = crate::fonts::medium(style::TAB);
                 let title_w = ui.fonts_mut(|f| f.layout_no_wrap(title.clone(), title_font.clone(), Color32::WHITE).size().x);
                 let dots_w = if lit.is_empty() { 0.0 } else { lit.len().min(4) as f32 * 9.0 + 4.0 };
-                let width = (14.0 + 14.0 + dots_w + title_w + 26.0).clamp(120.0, 240.0);
+                let width = (14.0 + 16.0 + dots_w + title_w + 26.0).clamp(130.0, 260.0);
                 let (rect, resp) = ui.allocate_exact_size(vec2(width, tab_h), Sense::click());
                 let rect = rect.translate(vec2(0.0, full.bottom() - rect.bottom()));
                 let hovered = resp.hovered();
@@ -68,8 +69,8 @@ impl VoiceGhosttyApp {
                 let mut x = rect.min.x + 12.0;
                 let cy = rect.center().y - 1.0;
                 let num_color = if active { p.text3 } else { alpha(p.text3, 0.8) };
-                ui.painter().text(pos2(x, cy), Align2::LEFT_CENTER, format!("{}", i + 1), crate::fonts::medium(11.0), num_color);
-                x += 14.0;
+                ui.painter().text(pos2(x, cy), Align2::LEFT_CENTER, format!("{}", i + 1), crate::fonts::medium(12.0), num_color);
+                x += 16.0;
                 for s in lit.iter().take(4) {
                     let color = widgets::status_color_of(&p, *s);
                     let pulse = *s == SessionStatus::Busy;
@@ -87,7 +88,7 @@ impl VoiceGhosttyApp {
                 let renaming = self.renaming.as_ref().is_some_and(|(ri, _)| *ri == i);
                 if renaming {
                     let (_, draft) = self.renaming.as_mut().unwrap();
-                    let edit_rect = Rect::from_min_max(pos2(x - 2.0, cy - 11.0), pos2(rect.max.x - 8.0, cy + 11.0));
+                    let edit_rect = Rect::from_min_max(pos2(x - 2.0, cy - 12.0), pos2(rect.max.x - 8.0, cy + 12.0));
                     let edit = ui.put(
                         edit_rect,
                         egui::TextEdit::singleline(draft).font(title_font.clone()).margin(vec2(4.0, 2.0)),
