@@ -176,6 +176,12 @@ pub fn help_sections() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
             ],
         ),
         (
+            "编辑",
+            vec![
+                ((if MAC { "⌘← / ⌘→" } else { "Home / End" }).into(), "光标跳到行首 / 行尾"),
+            ],
+        ),
+        (
             "其他",
             vec![
                 row(SelectAll, "全选"),

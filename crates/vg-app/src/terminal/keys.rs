@@ -9,7 +9,16 @@ fn modifier_param(m: Modifiers) -> u8 {
 
 /// `app_cursor`:终端处于应用光标模式(DECCKM,vim/less 等会开)
 pub fn encode(key: Key, m: Modifiers, app_cursor: bool) -> Option<Vec<u8>> {
-    // macOS 上 ⌘ 组合键是应用快捷键,不发给终端
+    // ⌘← / ⌘→:光标跳到本行开头 / 结尾。按 iTerm2 的惯例发 Ctrl-A / Ctrl-E,
+    // zsh(默认不绑 Home/End)、bash、readline、各类 TUI 都认
+    if m.mac_cmd && !m.alt && !m.ctrl && !m.shift {
+        match key {
+            Key::ArrowLeft => return Some(vec![0x01]),
+            Key::ArrowRight => return Some(vec![0x05]),
+            _ => {}
+        }
+    }
+    // macOS 上其余 ⌘ 组合键是应用快捷键,不发给终端
     if m.mac_cmd {
         return None;
     }
@@ -135,6 +144,16 @@ mod tests {
         assert_eq!(encode(Key::A, CTRL, false).unwrap(), vec![1]);
         assert_eq!(encode(Key::Space, CTRL, false).unwrap(), vec![0]);
         assert_eq!(encode(Key::OpenBracket, CTRL, false).unwrap(), vec![0x1b]);
+    }
+
+    #[test]
+    fn cmd_arrows_jump_to_line_edges() {
+        assert_eq!(encode(Key::ArrowLeft, Modifiers::MAC_CMD, false).unwrap(), vec![0x01]);
+        assert_eq!(encode(Key::ArrowRight, Modifiers::MAC_CMD, true).unwrap(), vec![0x05]);
+        // 带其他修饰键的 ⌘ 组合仍是应用快捷键
+        let cmd_alt = Modifiers { alt: true, ..Modifiers::MAC_CMD };
+        assert_eq!(encode(Key::ArrowLeft, cmd_alt, false), None);
+        assert_eq!(encode(Key::A, Modifiers::MAC_CMD, false), None);
     }
 
     #[test]
