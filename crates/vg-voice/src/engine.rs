@@ -201,6 +201,88 @@ fn strip_annotations(line: &str) -> String {
     out.trim().to_string()
 }
 
+/// Whisper 在静音 / 纯噪音上最常"幻听"出的句子:训练语料里字幕收尾的套话。
+/// 比较前先归一化(去掉标点、空白,转小写),整句命中即视为没听到声音
+const HALLUCINATED_SENTENCES: &[&str] = &[
+    "谢谢观看",
+    "謝謝觀看",
+    "感谢观看",
+    "感謝觀看",
+    "谢谢收看",
+    "謝謝收看",
+    "谢谢大家",
+    "謝謝大家",
+    "谢谢",
+    "謝謝",
+    "再见",
+    "再見",
+    "thankyou",
+    "thankyouverymuch",
+    "thanksforwatching",
+    "thankyouforwatching",
+    "thankyousomuchforwatching",
+    "seeyounexttime",
+    "bye",
+    "you",
+    "ご視聴ありがとうございました",
+    "시청해주셔서감사합니다",
+];
+/// 出现这些片段的,不管整句是什么都是幻听(字幕组署名)
+const HALLUCINATION_MARKERS: &[&str] = &[
+    "amaraorg",
+    "明镜与点点",
+    "明鏡與點點",
+    "点赞订阅转发打赏",
+    "點贊訂閱轉發打賞",
+    "优优独播剧场",
+    "優優獨播劇場",
+    "字幕志愿者",
+    "字幕志願者",
+    "字幕由",
+    "字幕提供",
+    "subtitlesby",
+    "字幕製作",
+    "字幕制作",
+];
+
+/// 只留字母数字(含汉字)并转小写,比较时忽略标点、空白与大小写
+fn normalize(text: &str) -> Vec<char> {
+    text.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+}
+
+/// 识别结果是不是 Whisper 对静音 / 噪音的幻听(见 [`HALLUCINATED_SENTENCES`])
+pub fn is_hallucination(text: &str) -> bool {
+    let norm: String = normalize(text).into_iter().collect();
+    if norm.is_empty() {
+        return true;
+    }
+    HALLUCINATED_SENTENCES.contains(&norm.as_str())
+        || HALLUCINATION_MARKERS.iter().any(|m| norm.contains(m))
+}
+
+/// 识别结果是不是在复读提示词。没有语音时 Whisper 常把 initial prompt 吐回来(噪音 → "再用简体中文")。
+/// 判定:与提示词的最长公共子串至少 4 个字,且覆盖了识别结果的七成以上。
+pub fn echoes_prompt(text: &str, prompt: &str) -> bool {
+    let t = normalize(text);
+    let p = normalize(prompt);
+    if t.is_empty() || p.is_empty() {
+        return false;
+    }
+    let mut best = 0;
+    let mut prev = vec![0usize; p.len() + 1];
+    for &a in &t {
+        let mut cur = vec![0usize; p.len() + 1];
+        for (j, &b) in p.iter().enumerate() {
+            if a == b {
+                cur[j + 1] = prev[j] + 1;
+                best = best.max(cur[j + 1]);
+            }
+        }
+        prev = cur;
+    }
+    best >= 4 && best * 10 >= t.len() * 7
+}
+
 /// 中文与中文之间不加空格,其他情况加
 fn needs_space(prev: &str, next: &str) -> bool {
     let is_cjk = |c: char| ('\u{2E80}'..='\u{9FFF}').contains(&c) || ('\u{FF00}'..='\u{FFEF}').contains(&c);
@@ -219,6 +301,34 @@ mod tests {
         assert_eq!(clean_transcript(" hello world\n how are you\n"), "hello world how are you");
         assert_eq!(clean_transcript("帮我看看\n磁盘空间\n"), "帮我看看磁盘空间");
         assert_eq!(clean_transcript("[Music] list files"), "list files");
+    }
+
+    #[test]
+    fn detects_whisper_hallucinations() {
+        assert!(is_hallucination("谢谢观看。"));
+        assert!(is_hallucination(" Thank you. "));
+        assert!(is_hallucination("Thanks for watching!"));
+        assert!(is_hallucination("字幕由Amara.org社区提供"));
+        assert!(is_hallucination("请不吝点赞 订阅 转发 打赏支持明镜与点点栏目"));
+        assert!(is_hallucination("优优独播剧场——YoYo Television Series Exclusive"));
+        assert!(is_hallucination("..."));
+        assert!(!is_hallucination("列出当前目录"));
+        assert!(!is_hallucination("git status"));
+        assert!(!is_hallucination("thank you for the review, merge it"));
+    }
+
+    #[test]
+    fn detects_prompt_echo() {
+        let zh = TranscribeOptions { language: "zh".into(), punctuation: true }.prompt().unwrap();
+        assert!(echoes_prompt("再用简体中文。", &zh));
+        assert!(echoes_prompt("以下是普通话的句子", &zh));
+        assert!(echoes_prompt("使用简体中文", &zh));
+        assert!(!echoes_prompt("使用简体中文写一个 README 放到仓库根目录", &zh));
+        assert!(!echoes_prompt("帮我看看磁盘空间还剩多少", &zh));
+        assert!(!echoes_prompt("是", &zh));
+        let en = TranscribeOptions { language: "en".into(), punctuation: false }.prompt().unwrap();
+        assert!(echoes_prompt("Lowercase, no punctuation.", &en));
+        assert!(!echoes_prompt("list files", &en));
     }
 
     #[cfg(unix)]

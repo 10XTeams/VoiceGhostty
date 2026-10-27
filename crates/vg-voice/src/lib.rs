@@ -14,7 +14,7 @@ use anyhow::bail;
 use vg_core::{VoiceConfig, VoiceEngineKind};
 
 pub use clip::AudioClip;
-pub use engine::{CommandEngine, HttpEngine, SpeechEngine, TranscribeOptions};
+pub use engine::{echoes_prompt, is_hallucination, CommandEngine, HttpEngine, SpeechEngine, TranscribeOptions};
 pub use recorder::{input_devices, Recorder};
 
 /// 录音短于这个时长直接丢弃(误触空格)
@@ -99,7 +99,8 @@ fn http_engine(cfg: &VoiceConfig) -> HttpEngine {
     }
 }
 
-/// 一次完整识别:转 16 kHz → 裁静音 → 交给引擎。静音/过短返回 Ok(None)。
+/// 一次完整识别:转 16 kHz → 裁静音 → 交给引擎。静音 / 只有噪音 / 过短 / 识别出的是幻听套话,
+/// 都返回 Ok(None)。
 pub fn transcribe(
     engine: &dyn SpeechEngine,
     clip: &AudioClip,
@@ -112,5 +113,9 @@ pub fn transcribe(
         return Ok(None);
     }
     let text = engine.transcribe(&speech, opts)?;
-    Ok(Some(text).filter(|t| !t.is_empty()))
+    if is_hallucination(&text) || opts.prompt().is_some_and(|p| echoes_prompt(&text, &p)) {
+        log::info!("voice: discarded hallucinated transcript {text:?}");
+        return Ok(None);
+    }
+    Ok(Some(text))
 }

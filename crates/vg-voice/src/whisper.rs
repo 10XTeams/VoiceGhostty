@@ -31,6 +31,11 @@ const AUDIO_CTX_PER_SEC: f32 = FULL_AUDIO_CTX / 30.0;
 const MIN_AUDIO_CTX: i32 = 512;
 /// 在实际时长之外多留的帧数(约 5 s),给解码器一点"句子已结束"的静音余量
 const AUDIO_CTX_PAD: f32 = 256.0;
+/// 解码器自己给出的"这段没有语音"概率超过它就丢弃该段(与 whisper.cpp / OpenAI 的默认值相同)。
+/// 只是兜底:实测 large-v3-turbo 配上缩小的 audio_ctx,纯噪音时这个概率也常是 0,照样吐出
+/// "谢谢观看" / 复读提示词之类的幻听。真正挡住噪音的是录音端的 `AudioClip::trim_silence`
+/// 和 `engine::is_hallucination` / `engine::echoes_prompt`
+const NO_SPEECH_THRESHOLD: f32 = 0.6;
 
 /// 按录音时长算编码器上下文:实际帧数 + 余量,向上取到 64 的倍数,夹在 [512, 1500]
 pub fn audio_ctx_for(duration_secs: f32) -> i32 {
@@ -115,10 +120,17 @@ impl SpeechEngine for WhisperEngine {
         params.set_audio_ctx(audio_ctx);
 
         state.full(params, &clip.samples).map_err(|e| anyhow!("whisper failed: {e}"))?;
-        let text: Vec<String> = state
-            .as_iter()
-            .filter_map(|seg| seg.to_str_lossy().ok().map(|s| s.into_owned()))
-            .collect();
+        let mut text = Vec::new();
+        for seg in state.as_iter() {
+            let Ok(s) = seg.to_str_lossy() else { continue };
+            let no_speech = seg.no_speech_probability();
+            if no_speech > NO_SPEECH_THRESHOLD {
+                log::info!("whisper: dropped segment, no_speech_prob {no_speech:.2}: {:?}", s.trim());
+                continue;
+            }
+            log::debug!("whisper: segment no_speech_prob {no_speech:.2}: {:?}", s.trim());
+            text.push(s.into_owned());
+        }
         log::info!(
             "whisper: {:.1}s audio, audio_ctx {audio_ctx}, transcribed in {:.0}ms",
             clip.duration_secs(),
