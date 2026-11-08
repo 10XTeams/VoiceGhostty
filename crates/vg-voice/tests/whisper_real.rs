@@ -25,7 +25,7 @@ fn engine() -> Option<WhisperEngine> {
 }
 
 fn transcribe(engine: &WhisperEngine, clip: &AudioClip, language: &str) -> Option<String> {
-    let opts = TranscribeOptions { language: language.into(), punctuation: true };
+    let opts = TranscribeOptions { language: language.into(), punctuation: true, ..Default::default() };
     let started = std::time::Instant::now();
     let text = vg_voice::transcribe(engine, clip, &opts).unwrap();
     // 不释放的话进程退出时 Metal 后端会 abort

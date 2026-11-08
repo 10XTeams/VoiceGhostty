@@ -113,7 +113,7 @@ pub fn transcribe(
         return Ok(None);
     }
     let text = engine.transcribe(&speech, opts)?;
-    if is_hallucination(&text) || opts.prompt().is_some_and(|p| echoes_prompt(&text, &p)) {
+    if is_hallucination(&text) || opts.base_prompt().is_some_and(|p| echoes_prompt(&text, &p)) {
         log::info!("voice: discarded hallucinated transcript {text:?}");
         return Ok(None);
     }

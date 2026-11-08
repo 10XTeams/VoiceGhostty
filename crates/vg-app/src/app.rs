@@ -387,7 +387,7 @@ impl VoiceGhosttyApp {
 
     fn on_ptt(&mut self, action: PttAction) {
         match action {
-            PttAction::StartRecording => match self.pipeline.start(&self.config) {
+            PttAction::StartRecording => match self.pipeline.start(&self.config, self.hotwords()) {
                 Ok(()) => {
                     self.rec_started = Some(Instant::now());
                     self.levels = std::iter::repeat_n(0.0, chrome::WAVE_BARS).collect();
@@ -402,6 +402,12 @@ impl VoiceGhosttyApp {
             }
             _ => {}
         }
+    }
+
+    /// 这次录音的热词:手动列表 + 活动窗格目录里的文件名与分支名
+    fn hotwords(&self) -> Vec<String> {
+        let cwd = self.active_session().and_then(|s| s.current_directory()).or_else(|| self.active_cwd());
+        vg_core::hotwords::collect(cwd.as_deref(), &self.config.voice.hotwords, self.config.voice.hotwords_auto)
     }
 
     /// 活动窗格的终端现场:工作目录,以及(开着 `llm-screen-context` 时)屏幕尾部与上一条命令

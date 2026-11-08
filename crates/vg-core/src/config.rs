@@ -97,6 +97,10 @@ pub struct VoiceConfig {
     pub spoken_symbols: bool,
     /// 个人词典:`(听成的, 想要的)`,两种模式都先替换
     pub replacements: Vec<(String, String)>,
+    /// 开始录音时把当前目录的文件名和 git 分支名当热词塞进 Whisper 提示词
+    pub hotwords_auto: bool,
+    /// 手动热词(`voice-hotwords`,逗号分隔,可多行累加)
+    pub hotwords: Vec<String>,
 }
 
 impl Default for VoiceConfig {
@@ -115,6 +119,8 @@ impl Default for VoiceConfig {
             live_caption: true,
             spoken_symbols: true,
             replacements: Vec::new(),
+            hotwords_auto: true,
+            hotwords: Vec::new(),
         }
     }
 }
@@ -310,6 +316,10 @@ impl Config {
                 }
                 "voice-live-caption" => v.live_caption = parse_bool(value),
                 "voice-spoken-symbols" => v.spoken_symbols = parse_bool(value),
+                "voice-hotwords-auto" => v.hotwords_auto = parse_bool(value),
+                "voice-hotwords" => {
+                    v.hotwords.extend(value.split(',').map(str::trim).filter(|w| !w.is_empty()).map(str::to_string))
+                }
                 "voice-replace" => {
                     if let Some(rule) = crate::rewrite::parse_rule(value) {
                         v.replacements.push(rule);
@@ -360,6 +370,9 @@ mod tests {
             vec![("卡狗".to_string(), "cargo".to_string()), ("鬼 ghostty".to_string(), "Ghostty".to_string())]
         );
         assert!(!c.voice.spoken_symbols);
+        let c = Config::parse("voice-hotwords = VoiceGhostty, cargo\nvoice-hotwords = egui\nvoice-hotwords-auto = off\n");
+        assert_eq!(c.voice.hotwords, vec!["VoiceGhostty", "cargo", "egui"]);
+        assert!(!c.voice.hotwords_auto);
     }
 
     #[test]

@@ -55,12 +55,14 @@ pub struct Pipeline {
     busy: bool,
     /// 置位后实时字幕线程在当前这轮识别结束后退出
     live_stop: Option<Arc<AtomicBool>>,
+    /// 这次录音开始时采集的热词(实时字幕与最终识别用同一份)
+    hotwords: Vec<String>,
 }
 
 impl Pipeline {
     pub fn new() -> Pipeline {
         let (tx, rx) = mpsc::channel();
-        Pipeline { recorder: None, tx, rx, busy: false, live_stop: None }
+        Pipeline { recorder: None, tx, rx, busy: false, live_stop: None, hotwords: Vec::new() }
     }
 
     pub fn is_recording(&self) -> bool {
@@ -80,17 +82,19 @@ impl Pipeline {
         self.busy = false;
     }
 
-    pub fn start(&mut self, config: &Config) -> Result<(), String> {
+    /// `hotwords`:这次录音的热词(当前目录文件名、分支名、手动列表),塞进 Whisper 提示词
+    pub fn start(&mut self, config: &Config, hotwords: Vec<String>) -> Result<(), String> {
         if self.recorder.is_some() || self.busy {
             return Ok(());
         }
         // 先确认引擎可用,免得录完才发现没配置
         let engine = vg_voice::build_engine(&config.voice).map_err(|e| e.to_string())?;
         let recorder = Recorder::start(&config.voice.device).map_err(|e| format!("{e:#}"))?;
+        self.hotwords = hotwords;
         if config.voice.live_caption && engine.supports_live() {
             let stop = Arc::new(AtomicBool::new(false));
             let live = recorder.live();
-            let opts = transcribe_options(config);
+            let opts = transcribe_options(config, self.hotwords.clone());
             let tx = self.tx.clone();
             let flag = stop.clone();
             std::thread::Builder::new()
@@ -112,8 +116,9 @@ impl Pipeline {
         self.busy = true;
         let tx = self.tx.clone();
         let config = config.clone();
+        let hotwords = std::mem::take(&mut self.hotwords);
         std::thread::spawn(move || {
-            let event = run(recorder, &config, mode, &context, &tx);
+            let event = run(recorder, &config, mode, &context, hotwords, &tx);
             let _ = tx.send(event);
         });
     }
@@ -124,6 +129,7 @@ fn run(
     config: &Config,
     mode: VoiceMode,
     context: &TerminalContext,
+    hotwords: Vec<String>,
     tx: &Sender<PipelineEvent>,
 ) -> PipelineEvent {
     let clip = match recorder.stop() {
@@ -135,7 +141,7 @@ fn run(
         Err(e) => return PipelineEvent::Error(e.to_string()),
     };
     let _ = tx.send(PipelineEvent::Stage("识别中…"));
-    let opts = transcribe_options(config);
+    let opts = transcribe_options(config, hotwords);
     let text = match vg_voice::transcribe(engine.as_ref(), &clip, &opts) {
         Ok(Some(t)) => t,
         Ok(None) => return PipelineEvent::Nothing,
@@ -170,11 +176,8 @@ fn run(
     }
 }
 
-fn transcribe_options(config: &Config) -> TranscribeOptions {
-    TranscribeOptions {
-        language: config.voice.language.clone(),
-        punctuation: config.voice.punctuation,
-    }
+fn transcribe_options(config: &Config, hotwords: Vec<String>) -> TranscribeOptions {
+    TranscribeOptions { language: config.voice.language.clone(), punctuation: config.voice.punctuation, hotwords }
 }
 
 /// 实时字幕线程:录音期间每隔一会儿把最近一段录音整体再识别一遍,把结果作为预览发给 UI。

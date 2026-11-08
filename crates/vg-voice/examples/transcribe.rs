@@ -22,7 +22,7 @@ fn main() -> anyhow::Result<()> {
     };
     let clip = AudioClip { samples, sample_rate: spec.sample_rate };
     let engine = vg_voice::whisper::WhisperEngine { model: model.clone() };
-    let opts = TranscribeOptions { language: "zh".into(), punctuation: true };
+    let opts = TranscribeOptions { language: "zh".into(), punctuation: true, ..Default::default() };
 
     let t = Instant::now();
     vg_voice::whisper::preload(&model);

@@ -17,17 +17,40 @@ pub struct TranscribeOptions {
     /// "zh" / "en" / "auto"
     pub language: String,
     pub punctuation: bool,
+    /// 热词(项目名、文件名、分支名…),附在提示词末尾让模型认得这些拼法
+    pub hotwords: Vec<String>,
+}
+
+impl Default for TranscribeOptions {
+    fn default() -> Self {
+        TranscribeOptions { language: "auto".into(), punctuation: true, hotwords: Vec::new() }
+    }
 }
 
 impl TranscribeOptions {
-    /// 引导 Whisper 系模型的提示词:中文时要求简体(否则常出繁体),关标点时给无标点示例
-    pub fn prompt(&self) -> Option<String> {
+    /// 固定部分的提示词:中文时要求简体(否则常出繁体),关标点时给无标点示例。
+    /// 复读检测只跟这部分比:热词本身就是用户可能说出口的词,不能因为识别结果正好是个文件名就当成幻听
+    pub fn base_prompt(&self) -> Option<String> {
         match (self.language.as_str(), self.punctuation) {
             ("zh", true) => Some("以下是普通话的句子，使用简体中文。".into()),
             ("zh", false) => Some("以下是普通话的句子 使用简体中文".into()),
             (_, false) => Some("lowercase no punctuation".into()),
             _ => None,
         }
+    }
+
+    /// 实际送给引擎的提示词:固定部分 + 热词列表
+    pub fn prompt(&self) -> Option<String> {
+        let base = self.base_prompt();
+        if self.hotwords.is_empty() {
+            return base;
+        }
+        let list = self.hotwords.join(", ");
+        let words = if self.language == "zh" { format!("词汇:{list}") } else { format!("Vocabulary: {list}") };
+        Some(match base {
+            Some(b) => format!("{b} {words}"),
+            None => words,
+        })
     }
 }
 
@@ -328,16 +351,31 @@ mod tests {
 
     #[test]
     fn detects_prompt_echo() {
-        let zh = TranscribeOptions { language: "zh".into(), punctuation: true }.prompt().unwrap();
+        let zh = TranscribeOptions { language: "zh".into(), punctuation: true, ..Default::default() }.prompt().unwrap();
         assert!(echoes_prompt("再用简体中文。", &zh));
         assert!(echoes_prompt("以下是普通话的句子", &zh));
         assert!(echoes_prompt("使用简体中文", &zh));
         assert!(!echoes_prompt("使用简体中文写一个 README 放到仓库根目录", &zh));
         assert!(!echoes_prompt("帮我看看磁盘空间还剩多少", &zh));
         assert!(!echoes_prompt("是", &zh));
-        let en = TranscribeOptions { language: "en".into(), punctuation: false }.prompt().unwrap();
+        let en = TranscribeOptions { language: "en".into(), punctuation: false, ..Default::default() }.prompt().unwrap();
         assert!(echoes_prompt("Lowercase, no punctuation.", &en));
         assert!(!echoes_prompt("list files", &en));
+    }
+
+    #[test]
+    fn hotwords_append_to_prompt_but_not_to_echo_check() {
+        let opts = TranscribeOptions {
+            language: "zh".into(),
+            punctuation: true,
+            hotwords: vec!["VoiceGhostty".into(), "Cargo.toml".into()],
+        };
+        assert_eq!(opts.prompt().unwrap(), "以下是普通话的句子，使用简体中文。 词汇:VoiceGhostty, Cargo.toml");
+        assert_eq!(opts.base_prompt().unwrap(), "以下是普通话的句子，使用简体中文。");
+        // 识别结果恰好是个热词:与固定提示词不相似,不能被当成复读
+        assert!(!echoes_prompt("VoiceGhostty", &opts.base_prompt().unwrap()));
+        let en = TranscribeOptions { language: "en".into(), hotwords: vec!["egui".into()], ..Default::default() };
+        assert_eq!(en.prompt().unwrap(), "Vocabulary: egui");
     }
 
     #[cfg(unix)]
@@ -356,7 +394,7 @@ mod tests {
         // 用 wc -c 当"识别器":输出 WAV 字节数,验证临时文件确实写入并传进了命令
         let e = CommandEngine { template: "wc -c < {wav} | tr -d ' '".into() };
         let clip = AudioClip { samples: vec![0.1; 100], sample_rate: 16_000 };
-        let opts = TranscribeOptions { language: "en".into(), punctuation: true };
+        let opts = TranscribeOptions { language: "en".into(), punctuation: true, ..Default::default() };
         assert_eq!(e.transcribe(&clip, &opts).unwrap(), "244");
     }
 
@@ -365,7 +403,7 @@ mod tests {
     fn command_engine_reports_failure() {
         let e = CommandEngine { template: "echo boom >&2; exit 3".into() };
         let clip = AudioClip { samples: vec![0.1; 10], sample_rate: 16_000 };
-        let opts = TranscribeOptions { language: "en".into(), punctuation: true };
+        let opts = TranscribeOptions { language: "en".into(), punctuation: true, ..Default::default() };
         let err = e.transcribe(&clip, &opts).unwrap_err().to_string();
         assert!(err.contains("boom"), "{err}");
     }

@@ -24,6 +24,7 @@
 | 最终识别 | 松开后把整段录音交给引擎,上屏的永远是这一次的结果。识别、纠错、生成命令都在后台线程,结果经通道回到 UI 线程;状态栏胶囊依次显示「识别中…」「整理语句…」「生成命令…」。 | `crates/vg-app/src/pipeline.rs` |
 | 实时字幕 | `voice-live-caption` / 设置里的「实时字幕」,默认开。录音期间一条后台线程约每 0.7 s 把**最近 20 s** 的录音整体再识别一遍(至少录满 1 s、比上次多 0.5 s 新内容才跑),结果以斜体显示在状态栏胶囊后面,松开后保留到最终结果替换它。每轮都是重识别而非增量拼接,所以前面听错的词会在后面几轮被纠正。只对本机引擎生效(进程内 whisper、指向本机的 HTTP 服务):云端按次计费、外部命令每次要起进程,都不值得每秒跑一次。与最终识别共用引擎(whisper 内部串行),字幕线程在松开后跑完当前这轮即退出。 | `crates/vg-app/src/pipeline.rs`(`live_captions`)、`crates/vg-voice/src/recorder.rs`(`LiveAudio`)、`crates/vg-app/src/chrome.rs` |
 | 结果清洗 | 所有引擎的输出统一清洗:多行拼成一行(中文与中文之间不加空格),去掉 Whisper 的 `[BLANK_AUDIO]` / `[Music]` 之类方括号标注。 | `crates/vg-voice/src/engine.rs`(`clean_transcript`) |
+| 热词 | 开始录音那一刻采集一批专有名词附在 Whisper 提示词末尾(中文「词汇:…」,英文「Vocabulary: …」),实时字幕与最终识别用同一份。来源:`voice-hotwords`(逗号分隔,可多行累加)的手动列表;`voice-hotwords-auto`(默认开)时再加活动窗格目录下的文件与文件夹名(跳过隐藏项、≤ 2 字符和不含字母的名字,长的优先,最多 30 个)和 git 分支名(读 `.git/HEAD`,支持 worktree,不起子进程)。总量封顶 400 字符以守住 Whisper 224 token 的提示窗口。复读检测只跟提示词的固定部分比,识别结果正好是个文件名不会被当成幻听。HTTP 引擎同样通过 `prompt` 字段收到热词;外部命令引擎收不到。 | `crates/vg-core/src/hotwords.rs`、`crates/vg-voice/src/engine.rs`(`TranscribeOptions::prompt`)、`crates/vg-app/src/app.rs`(`hotwords`) |
 | 标点 | `voice-punctuation` / 设置里的「自动标点」,默认开。通过提示词引导 Whisper 系模型:中文时要求简体(否则常出繁体),关标点时给一句无标点的示例。主要口述 shell 命令时建议关掉 —— 句号是噪音。 | `crates/vg-voice/src/engine.rs`(`TranscribeOptions::prompt`) |
 | 权限 | 麦克风权限由系统弹窗处理,弹窗依赖 `.app` bundle 里的 `NSMicrophoneUsageDescription`(所以要用 `make-app.sh` 打包,裸二进制拿不到权限)。找不到设备或流启动失败时报一句提示检查麦克风权限的错误。 | `crates/vg-voice/src/recorder.rs`、`packaging/macos/Info.plist` |
 
@@ -415,6 +416,8 @@ GUI 设置优先;没在 GUI 里设过的(`null`)回退配置文件。配置文�
 | `voice-hold-ms` | `250` | 按住空格多久算「按住说话」 |
 | `voice-live-caption` | `on` | 录音期间显示实时字幕(只对本机引擎生效) |
 | `voice-spoken-symbols` | `on` | 听写模式把口述的符号名换成符号(「点」→ `.`、「横杠」→ `-`) |
+| `voice-hotwords-auto` | `on` | 开始录音时把当前目录的文件名与 git 分支名当热词塞进 Whisper 提示词 |
+| `voice-hotwords` | — | 手动热词,逗号分隔,可多行累加 |
 | `voice-replace` | — | 个人词典,`听成的 => 想要的`,可写多行;设置面板里的词典优先 |
 
 源文件:`crates/vg-core/src/config.rs`、`crates/vg-core/src/paths.rs`

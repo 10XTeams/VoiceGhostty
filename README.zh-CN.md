@@ -176,6 +176,7 @@ voice-language    = zh         # zh | en | auto
 voice-punctuation = on         # 主要口述 shell 命令时建议 off
 voice-hold-ms     = 250        # 按住多久算"按住说话"
 voice-live-caption = on        # 录音时显示实时字幕(只对本机引擎生效)
+voice-hotwords    =            # 热词,逗号分隔;当前目录文件名和分支名会自动加入
 voice-device      =            # 麦克风名,留空用系统默认
 
 # 自然语言模式

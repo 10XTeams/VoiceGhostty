@@ -187,6 +187,7 @@ voice-language    = zh         # zh | en | auto
 voice-punctuation = on         # off when you mostly dictate shell commands
 voice-hold-ms     = 250        # how long a Space press counts as push-to-talk
 voice-live-caption = on        # live captions while recording (local engines only)
+voice-hotwords    =            # hotwords, comma-separated; cwd file names and git branch are added automatically
 voice-device      =            # microphone name, blank = system default
 
 # Natural-language mode
