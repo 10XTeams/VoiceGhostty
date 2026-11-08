@@ -62,6 +62,14 @@ impl VoiceGhosttyApp {
                             changed = true;
                         }
                     });
+                    kit::hairline(ui);
+                    kit::setting_row(ui, "实时字幕", Some("边说边在状态栏显示识别到的内容;只对本机引擎生效"), |ui| {
+                        let mut live = self.config.voice.live_caption;
+                        if toggle(ui, &mut live).changed() {
+                            self.settings.live_caption = Some(live);
+                            changed = true;
+                        }
+                    });
                 });
 
                 ui.add_space(10.0);

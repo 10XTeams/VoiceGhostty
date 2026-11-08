@@ -91,6 +91,8 @@ pub struct VoiceConfig {
     pub device: String,
     /// 按住空格多久算"按住说话",低于此值视为普通空格
     pub hold_ms: u64,
+    /// 录音期间边说边出实时字幕(只对本机引擎生效:进程内 whisper、本机 HTTP 服务)
+    pub live_caption: bool,
 }
 
 impl Default for VoiceConfig {
@@ -106,6 +108,7 @@ impl Default for VoiceConfig {
             model_path: None,
             device: String::new(),
             hold_ms: 250,
+            live_caption: true,
         }
     }
 }
@@ -294,6 +297,7 @@ impl Config {
                         v.hold_ms = n;
                     }
                 }
+                "voice-live-caption" => v.live_caption = parse_bool(value),
                 _ => {} // 未知 key 忽略
             }
         }

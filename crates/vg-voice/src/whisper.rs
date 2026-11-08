@@ -94,6 +94,10 @@ impl SpeechEngine for WhisperEngine {
         format!("whisper · {file}")
     }
 
+    fn supports_live(&self) -> bool {
+        true
+    }
+
     fn transcribe(&self, clip: &AudioClip, opts: &TranscribeOptions) -> anyhow::Result<String> {
         let mut slot = state(&self.model)?;
         let (_, state) = slot.as_mut().expect("state() always fills the slot");

@@ -20,6 +20,8 @@ pub struct Settings {
     pub voice_engine: Option<String>,
     /// 覆盖 voice-punctuation
     pub adds_punctuation: Option<bool>,
+    /// 覆盖 voice-live-caption
+    pub live_caption: Option<bool>,
     /// 覆盖 scrollback
     pub scrollback: Option<usize>,
     /// 每个窗格的会话记录是否写入文件
@@ -44,6 +46,7 @@ impl Default for Settings {
             default_language: None,
             voice_engine: None,
             adds_punctuation: None,
+            live_caption: None,
             scrollback: None,
             save_history: true,
             input_color: "#5CC8FF".into(),
@@ -92,6 +95,9 @@ impl Settings {
         }
         if let Some(p) = self.adds_punctuation {
             config.voice.punctuation = p;
+        }
+        if let Some(l) = self.live_caption {
+            config.voice.live_caption = l;
         }
         if let Some(n) = self.scrollback {
             config.scrollback = clamp_scrollback(n);

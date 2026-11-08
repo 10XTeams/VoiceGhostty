@@ -15,7 +15,7 @@ use vg_core::{VoiceConfig, VoiceEngineKind};
 
 pub use clip::AudioClip;
 pub use engine::{echoes_prompt, is_hallucination, CommandEngine, HttpEngine, SpeechEngine, TranscribeOptions};
-pub use recorder::{input_devices, Recorder};
+pub use recorder::{input_devices, LiveAudio, Recorder};
 
 /// 录音短于这个时长直接丢弃(误触空格)
 pub const MIN_SPEECH_SECS: f32 = 0.3;

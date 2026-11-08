@@ -276,6 +276,7 @@ impl VoiceGhosttyApp {
             }
 
             self.voice_capsule(ui, &p);
+            self.live_caption(ui, &p);
             self.status_message(ui, &p);
 
             let usage = self.active_session().and_then(|s| s.shared.usage());
@@ -416,6 +417,21 @@ impl VoiceGhosttyApp {
                 ui.ctx().request_repaint_after(Duration::from_millis(33));
             }
         }
+    }
+
+    /// 实时字幕:录音 / 识别期间显示到目前为止听到的内容,紧跟在胶囊后面
+    fn live_caption(&mut self, ui: &mut Ui, p: &Palette) {
+        if !(self.pipeline.is_recording() || self.pipeline.is_busy()) {
+            return;
+        }
+        let Some(text) = self.caption.as_deref().filter(|t| !t.is_empty()) else { return };
+        let color = if self.pipeline.is_recording() { p.text2 } else { p.text3 };
+        let resp = ui.add(
+            egui::Label::new(RichText::new(text).italics().color(color))
+                .truncate()
+                .wrap_mode(egui::TextWrapMode::Truncate),
+        );
+        resp.on_hover_text(format!("实时字幕(预览,松开后以最终识别为准)\n{text}"));
     }
 
     /// 上一次操作的结果(已上屏 / 出错),15 秒后淡出

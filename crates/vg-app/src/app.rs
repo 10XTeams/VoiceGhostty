@@ -82,6 +82,8 @@ pub struct VoiceGhosttyApp {
     rec_started: Option<Instant>,
     levels: VecDeque<f32>,
     level_sampled: Option<Instant>,
+    /// 实时字幕:录音期间到目前为止识别出的内容,松开后保留到最终结果出来
+    pub(crate) caption: Option<String>,
     #[cfg(test)]
     preview_voice: Option<VoiceUi>,
 }
@@ -132,6 +134,7 @@ impl VoiceGhosttyApp {
             rec_started: None,
             levels: VecDeque::new(),
             level_sampled: None,
+            caption: None,
             #[cfg(test)]
             preview_voice: None,
         };
@@ -350,8 +353,15 @@ impl VoiceGhosttyApp {
         while let Ok(event) = self.pipeline.rx.try_recv() {
             match event {
                 PipelineEvent::Stage(s) => self.set_status(s, false),
+                PipelineEvent::Partial(text) => {
+                    // 松开之后字幕线程可能还会送来最后一轮,只在录音 / 识别期间接受
+                    if self.pipeline.is_recording() || self.pipeline.is_busy() {
+                        self.caption = Some(text);
+                    }
+                }
                 PipelineEvent::Insert { text, explanation } => {
                     self.pipeline.finished();
+                    self.caption = None;
                     if let Some(s) = self.active_session() {
                         s.type_text(&text);
                     }
@@ -360,10 +370,12 @@ impl VoiceGhosttyApp {
                 }
                 PipelineEvent::Nothing => {
                     self.pipeline.finished();
+                    self.caption = None;
                     self.set_status("没听到声音", false);
                 }
                 PipelineEvent::Error(e) => {
                     self.pipeline.finished();
+                    self.caption = None;
                     self.set_status(e, true);
                 }
             }
@@ -377,6 +389,7 @@ impl VoiceGhosttyApp {
                     self.rec_started = Some(Instant::now());
                     self.levels = std::iter::repeat_n(0.0, chrome::WAVE_BARS).collect();
                     self.status = Status::default();
+                    self.caption = None;
                 }
                 Err(e) => self.set_status(e, true),
             },

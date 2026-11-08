@@ -36,6 +36,11 @@ pub trait SpeechEngine: Send + Sync {
     fn name(&self) -> String;
     /// `clip` 已是 16 kHz 单声道、已裁静音
     fn transcribe(&self, clip: &AudioClip, opts: &TranscribeOptions) -> anyhow::Result<String>;
+    /// 录音期间能否每秒多跑几次识别做实时字幕。只有本机引擎(进程内 whisper、本机 HTTP 服务)
+    /// 才值得:云端按次计费,外部命令每次要起进程
+    fn supports_live(&self) -> bool {
+        false
+    }
 }
 
 // MARK: - HTTP(OpenAI 兼容)
@@ -58,6 +63,10 @@ impl HttpEngine {
 impl SpeechEngine for HttpEngine {
     fn name(&self) -> String {
         format!("HTTP · {}", self.model)
+    }
+
+    fn supports_live(&self) -> bool {
+        self.is_local()
     }
 
     fn transcribe(&self, clip: &AudioClip, opts: &TranscribeOptions) -> anyhow::Result<String> {

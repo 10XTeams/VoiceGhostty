@@ -40,7 +40,7 @@ Working with [Claude Code](https://claude.com/claude-code) means a lot of "type 
 
 | | |
 |---|---|
-| 🎙 **Push-to-talk** | Hold <kbd>Space</kbd> (≥0.25s) to record, release to stop. A quick tap still types a space. Or <kbd>⌘⇧M</kbd> to toggle. |
+| 🎙 **Push-to-talk** | Hold <kbd>Space</kbd> (≥0.25s) to record, release to stop. A quick tap still types a space. Or <kbd>⌘⇧M</kbd> to toggle. With a local engine you get **live captions** as you speak; the final pass decides what is typed. |
 | 🔌 **Pluggable recognition** | Built-in [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (offline, Metal-accelerated on macOS, model preloaded at launch); or any **external command** that reads a WAV and prints text; or an OpenAI-compatible **HTTP transcription API** (OpenAI, Groq, a local faster-whisper…). `auto` picks whatever is available. |
 | 🧠 **Two voice modes** | *Dictation* (verbatim) and *Natural language* (Claude API or local Ollama → command + explanation, optionally with an Ollama cleanup pass first). <kbd>⌘⇧N</kbd> toggles. |
 | 🌏 **Chinese & English** | Recognition language `zh` / `en` / `auto`. Automatic punctuation is on by default; turn it off when you mostly dictate shell commands. |
@@ -186,6 +186,7 @@ voice-engine      = auto       # auto | whisper | http | command | off
 voice-language    = zh         # zh | en | auto
 voice-punctuation = on         # off when you mostly dictate shell commands
 voice-hold-ms     = 250        # how long a Space press counts as push-to-talk
+voice-live-caption = on        # live captions while recording (local engines only)
 voice-device      =            # microphone name, blank = system default
 
 # Natural-language mode

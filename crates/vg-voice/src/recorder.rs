@@ -17,25 +17,30 @@ pub struct Recorder {
     stop_tx: mpsc::Sender<()>,
     handle: Option<JoinHandle<anyhow::Result<AudioClip>>>,
     level: Arc<AtomicU32>,
+    /// 录到现在的全部采样(设备原生采样率),实时字幕边录边读
+    samples: Arc<Mutex<Vec<f32>>>,
+    sample_rate: u32,
 }
 
 impl Recorder {
     /// 开始录音。`device_name` 为空用系统默认输入设备。
     pub fn start(device_name: &str) -> anyhow::Result<Recorder> {
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
-        let (ready_tx, ready_rx) = mpsc::channel::<anyhow::Result<()>>();
+        let (ready_tx, ready_rx) = mpsc::channel::<anyhow::Result<u32>>();
         let level = Arc::new(AtomicU32::new(0));
         let level_in_thread = level.clone();
+        let samples = Arc::new(Mutex::new(Vec::<f32>::new()));
+        let samples_in_thread = samples.clone();
         let device_name = device_name.to_string();
 
         let handle = std::thread::Builder::new()
             .name("vg-recorder".into())
             .spawn(move || -> anyhow::Result<AudioClip> {
-                let samples = Arc::new(Mutex::new(Vec::<f32>::new()));
+                let samples = samples_in_thread;
                 let setup = build_stream(&device_name, samples.clone(), level_in_thread);
                 let (stream, rate) = match setup {
                     Ok(v) => {
-                        let _ = ready_tx.send(Ok(()));
+                        let _ = ready_tx.send(Ok(v.1));
                         v
                     }
                     Err(e) => {
@@ -51,15 +56,26 @@ impl Recorder {
                 Ok(AudioClip { samples, sample_rate: rate })
             })?;
 
-        ready_rx
+        let sample_rate = ready_rx
             .recv()
             .map_err(|_| anyhow!("recorder thread exited unexpectedly"))??;
-        Ok(Recorder { stop_tx, handle: Some(handle), level })
+        Ok(Recorder { stop_tx, handle: Some(handle), level, samples, sample_rate })
     }
 
     /// 当前输入电平(RMS,0..1 左右),界面用
     pub fn level(&self) -> f32 {
         f32::from_bits(self.level.load(Ordering::Relaxed))
+    }
+
+    /// 录音还在进行时,拷一份到目前为止的采样。实时字幕用它反复识别"说到哪了"。
+    pub fn snapshot(&self) -> AudioClip {
+        let samples = self.samples.lock().unwrap().clone();
+        AudioClip { samples, sample_rate: self.sample_rate }
+    }
+
+    /// 可以在录音期间低成本地共享给其它线程的采样句柄(与 [`Recorder::snapshot`] 读到的是同一份)
+    pub fn live(&self) -> LiveAudio {
+        LiveAudio { samples: self.samples.clone(), sample_rate: self.sample_rate }
     }
 
     /// 停止并取回整段录音
@@ -76,6 +92,36 @@ impl Recorder {
 impl Drop for Recorder {
     fn drop(&mut self) {
         let _ = self.stop_tx.send(());
+    }
+}
+
+/// 录音进行中可跨线程读取的采样视图(实时字幕线程用,不持有 cpal 流)
+#[derive(Clone)]
+pub struct LiveAudio {
+    samples: Arc<Mutex<Vec<f32>>>,
+    sample_rate: u32,
+}
+
+impl LiveAudio {
+    /// 目前录到的采样数
+    pub fn len(&self) -> usize {
+        self.samples.lock().unwrap().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    /// 最近 `max_secs` 秒的录音(不足则全部)
+    pub fn tail(&self, max_secs: f32) -> AudioClip {
+        let guard = self.samples.lock().unwrap();
+        let keep = ((max_secs.max(0.0)) * self.sample_rate as f32) as usize;
+        let start = guard.len().saturating_sub(keep);
+        AudioClip { samples: guard[start..].to_vec(), sample_rate: self.sample_rate }
     }
 }
 
