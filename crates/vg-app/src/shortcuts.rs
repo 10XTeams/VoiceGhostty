@@ -30,6 +30,8 @@ pub enum Action {
     SelectAll,
     ToggleRecording,
     ToggleMode,
+    /// 撤销上一次语音上屏的文本
+    UndoVoice,
     Loader,
     Settings,
     Help,
@@ -101,6 +103,7 @@ impl Action {
             SelectAll => pick(m(CMD, Key::A), m(CS, Key::A)),
             ToggleRecording => pick(m(CMD_SHIFT, Key::M), m(CS, Key::M)),
             ToggleMode => pick(m(CMD_SHIFT, Key::N), m(CS, Key::N)),
+            UndoVoice => pick(m(CMD, Key::Z), m(CS, Key::Z)),
             Loader => pick(m(CMD, Key::L), m(CS, Key::L)),
             Settings => pick(m(CMD, Key::Comma), m(CS, Key::Comma)),
             Help => pick(m(CMD, Key::Slash), m(CS, Key::Slash)),
@@ -139,12 +142,16 @@ pub fn help_sections(ptt_key: &str, global_hotkey: Option<&str>) -> Vec<(&'stati
         (format!("按住{ptt_key}"), "说话,松开结束"),
         row(ToggleRecording, "开始 / 停止录音"),
         row(ToggleMode, "切换听写 / 自然语言"),
+        row(UndoVoice, "撤销上一次语音上屏(之后没再敲过键才行)"),
     ];
     if let Some(g) = global_hotkey {
         voice.push((g.to_string(), "全局热键:窗口在后台也能按住说话"));
     }
+    let spoken: Vec<(String, &'static str)> =
+        vg_core::voice_commands::VoiceCommand::help().into_iter().map(|(say, does)| (format!("说「{say}」"), does)).collect();
     vec![
         ("语音", voice),
+        ("语音命令", spoken),
         (
             "标签页",
             vec![
@@ -205,7 +212,7 @@ mod tests {
         let mut all: Vec<Action> = vec![
             NewTab, Close, SplitRight, SplitDown, NextTab, PrevTab, LastTab, FocusLeft, FocusRight, FocusUp,
             FocusDown, MoveToNewTab, MoveToPrevTab, MoveToNextTab, FontBigger, FontSmaller, FontReset,
-            ClearScreen, Find, SelectAll, ToggleRecording, ToggleMode, Loader, Settings, Help,
+            ClearScreen, Find, SelectAll, ToggleRecording, ToggleMode, UndoVoice, Loader, Settings, Help,
         ];
         all.extend((1..=8).map(Tab));
         all.extend((1..=8).map(MoveToTab));

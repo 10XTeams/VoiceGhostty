@@ -27,6 +27,9 @@ pub struct InputState {
     pub ptt: PushToTalk,
     /// 输入法正在组字(拼音还没上屏)。组字时空格属于输入法,不能拦截成按住说话
     pub preedit: String,
+    /// 用户往这个窗格敲过多少次键(文字、控制键、粘贴、输入法上屏)。语音撤销靠它判断
+    /// 「上屏之后你有没有再敲过东西」:敲过就不能盲目退格了
+    pub typed_seq: u64,
     scroll_accum: f32,
     /// 鼠标选择:正在拖选 / 连击计数(1 单击、2 双击选词、3 三击选行)
     selecting: bool,
@@ -188,20 +191,26 @@ fn handle_input(
                 term.scroll_display(Scroll::Bottom);
                 term.selection = None;
                 drop(term);
+                state.typed_seq += 1;
                 session.write(t.into_bytes());
             }
             Event::Key { key, pressed: true, modifiers, .. } => {
                 if let Some(bytes) = keys::encode(key, modifiers, mode.contains(TermMode::APP_CURSOR)) {
                     session.term.lock().scroll_display(Scroll::Bottom);
+                    state.typed_seq += 1;
                     session.write(bytes);
                 }
             }
             Event::Ime(ImeEvent::Preedit { text, .. }) => state.preedit = text,
             Event::Ime(ImeEvent::Commit(text)) => {
                 state.preedit.clear();
+                state.typed_seq += 1;
                 session.write(text.into_bytes());
             }
-            Event::Paste(text) => paste(session, mode, &text),
+            Event::Paste(text) => {
+                state.typed_seq += 1;
+                paste(session, mode, &text);
+            }
             // macOS:⌘C 复制选区。Linux/Windows:egui 把 Ctrl+C 也变成复制事件——
             // 带 Shift(Ctrl+Shift+C)才是复制,否则它在终端里应该是中断(^C)
             Event::Copy => {

@@ -42,6 +42,7 @@ Rust 编写,macOS 预编译发布,Linux / Windows 可从源码构建。按住说
 |---|---|
 | 🎙 **按住说话** | 按住 <kbd>空格</kbd>(≥0.25 秒)录音,松开即停;快速点按仍是正常输入空格。也可用 <kbd>⌘⇧M</kbd> 开关。本机引擎下边说边出**实时字幕**,松开后以最终识别为准。 |
 | 🔌 **可插拔识别引擎** | 内置 [whisper.cpp](https://github.com/ggml-org/whisper.cpp)(本地离线,macOS 用 Metal 加速,模型启动时后台预载);也可接任何读 WAV 出文字的**外部命令**,或 OpenAI 兼容的 **HTTP 转写接口**(OpenAI、Groq、本机 faster-whisper 等)。`auto` 按可用性自动挑。 |
+| 🗣 **语音命令** | 整句说「清屏」「新标签」「第二个标签」「向右分屏」「撤销」就直接执行,不敲字也不问模型;只认整句,句子里带这些词不受影响。 |
 | 🧠 **两种语音模式** | *听写*(说什么敲什么)与*自然语言*(Claude API 或本地 Ollama → 命令 + 解释;可选先用 Ollama 小模型纠错)。<kbd>⌘⇧N</kbd> 切换。 |
 | 🌏 **中英识别** | 识别语言 `zh` / `en` / `auto`,默认自动加标点,主要口述 shell 命令时建议关掉。 |
 | 🚦 **状态灯** | 每个标签页和分屏都有灰 / 黄 / 绿三态点:空闲、执行中、已完成等你处理。zsh 下靠 shell 集成精确判断;`claude`、`vim` 这类全屏程序按输出和响铃推断。你正在看的窗格保持灰色;窗口在后台也照常变色。 |
@@ -69,6 +70,7 @@ Rust 编写,macOS 预编译发布,Linux / Windows 可从源码构建。按住说
 |---|---|---|
 | 说话(点按 = 空格;说话键可在设置里换成 F13 等) | 按住 <kbd>空格</kbd> | 按住 <kbd>空格</kbd> |
 | 开始 / 停止录音 · 切换语音模式 | <kbd>⌘⇧M</kbd> / <kbd>⌘⇧N</kbd> | <kbd>Ctrl⇧M</kbd> / <kbd>Ctrl⇧N</kbd> |
+| 撤销上一次语音上屏(或说「撤销」) | <kbd>⌘Z</kbd> | <kbd>Ctrl⇧Z</kbd> |
 | 新建 / 关闭(先关分屏,再关标签页) | <kbd>⌘T</kbd> / <kbd>⌘W</kbd> | <kbd>Ctrl⇧T</kbd> / <kbd>Ctrl⇧W</kbd> |
 | 向右 / 向下分屏(可反复) | <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> | <kbd>Ctrl⇧D</kbd> / <kbd>Ctrl⇧E</kbd> |
 | 切换分屏焦点 | <kbd>⌘⌥</kbd>←↑↓→ | <kbd>Ctrl⌥</kbd>←↑↓→ |

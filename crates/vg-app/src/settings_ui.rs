@@ -94,6 +94,14 @@ impl VoiceGhosttyApp {
                         }
                     });
                     kit::hairline(ui);
+                    kit::setting_row(ui, "语音命令", Some("整句说「清屏」「新标签」「第二个标签」时直接执行;完整列表见快捷键表"), |ui| {
+                        let mut on = self.config.voice.commands;
+                        if toggle(ui, &mut on).changed() {
+                            self.settings.voice_commands = Some(on);
+                            changed = true;
+                        }
+                    });
+                    kit::hairline(ui);
                     kit::setting_row(ui, "口述符号", Some("听写时「点」「横杠」「斜杠」等换成 . - /;只在挨着英文数字时转换"), |ui| {
                         let mut sym = self.config.voice.spoken_symbols;
                         if toggle(ui, &mut sym).changed() {

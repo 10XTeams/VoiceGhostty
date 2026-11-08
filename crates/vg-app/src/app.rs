@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 
 use vg_core::nl2command::TerminalContext;
+use vg_core::voice_commands::VoiceCommand;
 use vg_core::{Config, Settings, VoiceEngineKind};
 
 use crate::hotkey::{GlobalHotkey, HotkeyEvent};
@@ -21,7 +22,7 @@ use crate::terminal::{self, search::SearchState};
 use crate::terminal::session::{GridSize, TerminalSession};
 use crate::terminal::view::{self, InputState, ViewOptions};
 use crate::style;
-use crate::workspace::Workspace;
+use crate::workspace::{PaneId, Workspace};
 
 pub(crate) struct Pane {
     pub session: TerminalSession,
@@ -42,6 +43,14 @@ const SPLIT_GAP: f32 = 1.0;
 const SCREEN_CONTEXT_LINES: usize = 40;
 const FONT_MIN: f32 = 8.0;
 const FONT_MAX: f32 = 48.0;
+
+/// 一次语音上屏的记录(撤销用)
+#[derive(Clone, Copy, Debug)]
+struct VoiceInsert {
+    pane: PaneId,
+    chars: usize,
+    typed_seq: u64,
+}
 
 /// 状态栏语音胶囊的几种样子
 #[derive(Clone, Debug)]
@@ -88,6 +97,8 @@ pub struct VoiceGhosttyApp {
     level_sampled: Option<Instant>,
     /// 实时字幕:录音期间到目前为止识别出的内容,松开后保留到最终结果出来
     pub(crate) caption: Option<String>,
+    /// 上一次语音上屏:落在哪个窗格、多少个字符、当时该窗格的敲键计数。撤销要三者都对得上
+    last_voice_insert: Option<VoiceInsert>,
     /// 全局热键(配置了且注册成功时)与它按下的时刻:松开时按住够久就停止,否则当作开关
     global_hotkey: Option<GlobalHotkey>,
     global_hotkey_pressed: Option<Instant>,
@@ -144,6 +155,7 @@ impl VoiceGhosttyApp {
             levels: VecDeque::new(),
             level_sampled: None,
             caption: None,
+            last_voice_insert: None,
             global_hotkey: None,
             global_hotkey_pressed: None,
             global_hotkey_error: None,
@@ -351,6 +363,13 @@ impl VoiceGhosttyApp {
                 VoiceMode::NaturalLanguage => VoiceMode::Dictation,
             };
         }
+        if UndoVoice.consume(ctx) {
+            if self.undo_voice() {
+                self.set_status("已撤销上一次语音输入", false);
+            } else {
+                self.set_status("没有可撤销的语音输入", true);
+            }
+        }
         if Loader.consume(ctx) {
             self.toggle_loader();
         }
@@ -443,11 +462,21 @@ impl VoiceGhosttyApp {
                 PipelineEvent::Insert { text, explanation } => {
                     self.pipeline.finished();
                     self.caption = None;
-                    if let Some(s) = self.active_session() {
-                        s.type_text(&text);
+                    if let Some(pane) = self.ws.active_pane() {
+                        pane.session.type_text(&text);
+                        self.last_voice_insert = Some(VoiceInsert {
+                            pane: self.ws.active_pane_id().unwrap_or_default(),
+                            chars: text.chars().count(),
+                            typed_seq: pane.input.typed_seq,
+                        });
                     }
                     let note = explanation.unwrap_or_else(|| format!("已上屏:{text}"));
                     self.set_status(note, false);
+                }
+                PipelineEvent::Action(cmd) => {
+                    self.pipeline.finished();
+                    self.caption = None;
+                    self.run_voice_command(ctx, cmd);
                 }
                 PipelineEvent::Nothing => {
                     self.pipeline.finished();
@@ -480,6 +509,62 @@ impl VoiceGhosttyApp {
             }
             _ => {}
         }
+    }
+
+    /// 执行一条语音动作命令(与对应快捷键走同一套方法)
+    fn run_voice_command(&mut self, ctx: &egui::Context, cmd: VoiceCommand) {
+        match cmd {
+            VoiceCommand::ClearScreen => {
+                if let Some(s) = self.active_session() {
+                    s.clear_screen();
+                }
+            }
+            VoiceCommand::NewTab => self.new_tab(ctx),
+            VoiceCommand::CloseActive => self.close_active(ctx),
+            VoiceCommand::NextTab => self.ws.cycle_tab(1),
+            VoiceCommand::PrevTab => self.ws.cycle_tab(-1),
+            VoiceCommand::Tab(n) => {
+                if n as usize > self.ws.tabs.len() {
+                    self.set_status(format!("只有 {} 个标签页", self.ws.tabs.len()), true);
+                    return;
+                }
+                self.ws.select_tab(n as usize - 1);
+            }
+            VoiceCommand::LastTab => self.ws.select_tab(self.ws.tabs.len().saturating_sub(1)),
+            VoiceCommand::SplitRight => self.split(ctx, Axis::Horizontal),
+            VoiceCommand::SplitDown => self.split(ctx, Axis::Vertical),
+            VoiceCommand::Find => {
+                self.search_open = true;
+                self.search_focus = true;
+            }
+            VoiceCommand::Dictation => self.mode = VoiceMode::Dictation,
+            VoiceCommand::NaturalLanguage => self.mode = VoiceMode::NaturalLanguage,
+            VoiceCommand::UndoVoice => {
+                if !self.undo_voice() {
+                    self.set_status("没有可撤销的语音输入", true);
+                    return;
+                }
+            }
+        }
+        self.set_status(format!("已执行:{}", cmd.label()), false);
+    }
+
+    /// 撤销上一次语音上屏:往那个窗格发同样多个退格。只在该窗格此后没再敲过键、且它仍然存在时才做,
+    /// 否则退格会吃掉你自己打的字。一次上屏只能撤一次
+    fn undo_voice(&mut self) -> bool {
+        let Some(rec) = self.last_voice_insert else { return false };
+        let Some(pane) = self.ws.panes.get(&rec.pane) else {
+            self.last_voice_insert = None;
+            return false;
+        };
+        if pane.input.typed_seq != rec.typed_seq || rec.chars == 0 {
+            self.last_voice_insert = None;
+            return false;
+        }
+        // 语音文本不含换行,逐字符退格即可;宽字符在 zsh / readline 里也是一个退格一个字
+        pane.session.write(vec![0x7f; rec.chars]);
+        self.last_voice_insert = None;
+        true
     }
 
     /// 这次录音的热词:手动列表 + 活动窗格目录里的文件名与分支名

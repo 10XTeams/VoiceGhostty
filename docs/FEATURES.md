@@ -90,6 +90,13 @@ The transcript goes through a **local correction pass** before reaching the LLM 
 | Context | The system prompt names the operating system (macOS / Linux / Windows), the user's shell (last segment of `$SHELL`; PowerShell on Windows) and the active pane's working directory to improve command accuracy; it asks that dangerous operations be flagged in the explanation, and that `command` be left empty with a reason when the request cannot be done safely. | `crates/vg-core/src/nl2command.rs` (`instructions`) |
 | Terminal scene | With `llm-screen-context` (on by default) the prompt also carries the **last 40 visible screen lines** (trailing whitespace and empty lines dropped, capped at 3000 characters from the end) and the **last command and its exit code** as seen by the zsh integration (the state file's `C <n>` is followed by the command text; `D <n> <exit>`). That is what makes "why did that fail", "delete the file above" or "run it again" refer to something. Screen text is sent along with the request to the Claude API or local Ollama; turn it off and only the working directory goes. | `crates/vg-core/src/nl2command.rs` (`TerminalContext`), `crates/vg-app/src/terminal/session.rs` (`screen_tail`, `last_command`), `crates/vg-core/src/status.rs` (`StateFile`, `LastCommand`) |
 
+### Voice commands and undo
+
+| Feature | Detail | Source |
+|---|---|---|
+| Voice commands | `voice-commands` / "Voice commands" in Settings, on by default, **checked first in both modes**. When the whole utterance is exactly one action it runs directly, with nothing typed and no LLM call: "清屏 / clear screen", "新标签 / new tab", "关闭标签 / close tab", "下一个标签 / next tab", "第二个标签 / tab 3 / go to tab three", "最后一个标签 / last tab", "向右分屏 / split right", "向下分屏 / split down", "搜索 / search", "听写模式 / 自然语言模式", "撤销 / undo". **Exact whole-utterance match only** (punctuation, spaces and case stripped, then compared to the table); keywords inside a sentence are never picked out, so 「帮我清屏之前先保存」 is still typed. The status bar reports "ran: …"; the shortcut help (<kbd>⌘/</kbd>) lists every phrase. | `crates/vg-core/src/voice_commands.rs`, `crates/vg-app/src/app.rs` (`run_voice_command`) |
+| Undo voice insertion | <kbd>⌘Z</kbd> (<kbd>Ctrl+Shift+Z</kbd> on Linux / Windows) or say "undo": sends as many backspaces as the last voice insertion had characters, to the pane it landed in. Only when **nothing has been typed in that pane since** and the pane still exists, otherwise backspaces would eat your own typing; each insertion can be undone once. | `crates/vg-app/src/app.rs` (`undo_voice`), `crates/vg-app/src/terminal/view.rs` (`typed_seq`) |
+
 ## 4. Safety model
 
 - **Never auto-executes.** Every recognized result is *typed* at the terminal cursor (`type_text`: scroll to the bottom, then write the bytes to the pty with no carriage return). You press <kbd>Return</kbd>.
@@ -499,6 +506,7 @@ false, anything else is true. **23 keys:**
 | `voice-spoken-symbols` | `on` | Dictation turns spoken symbol names into symbols ("dot" → `.`, "dash" → `-`) |
 | `voice-hotwords-auto` | `on` | Feed the current directory's file names and git branch to the Whisper prompt as hotwords when recording starts |
 | `voice-hotwords` | — | Manual hotwords, comma-separated, repeatable |
+| `voice-commands` | `on` | Run actions directly when the whole utterance is "clear screen", "new tab" etc. |
 | `voice-replace` | — | Personal dictionary, `heard => wanted`, repeatable; the Settings dictionary takes precedence |
 
 Source: `crates/vg-core/src/config.rs`, `crates/vg-core/src/paths.rs`
@@ -556,6 +564,7 @@ the terminal (Ctrl+T / W / D all mean something in a shell), so most shortcuts u
 |---|---|---|
 | Talk (release to stop; a quick tap types a space) | Hold <kbd>Space</kbd> | Hold <kbd>Space</kbd> |
 | Start / stop recording | <kbd>⌘⇧M</kbd> | <kbd>Ctrl+Shift+M</kbd> |
+| Undo the last voice insertion | <kbd>⌘Z</kbd> | <kbd>Ctrl+Shift+Z</kbd> |
 | Toggle dictation / natural language | <kbd>⌘⇧N</kbd> | <kbd>Ctrl+Shift+N</kbd> |
 | New tab | <kbd>⌘T</kbd> | <kbd>Ctrl+Shift+T</kbd> |
 | Close split, else close tab | <kbd>⌘W</kbd> | <kbd>Ctrl+Shift+W</kbd> |

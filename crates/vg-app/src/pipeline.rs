@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use vg_core::nl2command::TerminalContext;
+use vg_core::voice_commands::{self, VoiceCommand};
 use vg_core::{nl2command, ollama, rewrite, Config};
 use vg_voice::{LiveAudio, Recorder, TranscribeOptions};
 
@@ -43,6 +44,8 @@ pub enum PipelineEvent {
     Partial(String),
     /// 要写入终端光标处的文本 + 可选说明
     Insert { text: String, explanation: Option<String> },
+    /// 整句是一条动作命令(「清屏」「第二个标签」),由 UI 线程执行
+    Action(VoiceCommand),
     /// 没听到有效语音
     Nothing,
     Error(String),
@@ -149,6 +152,12 @@ fn run(
     };
     // 个人词典先于一切:同音别字纠正过再往下走
     let text = rewrite::apply_dictionary(&text, &config.voice.replacements);
+    // 整句就是一条动作命令:两种模式都直接执行,不敲字也不问 LLM
+    if config.voice.commands {
+        if let Some(cmd) = voice_commands::parse(&text) {
+            return PipelineEvent::Action(cmd);
+        }
+    }
 
     match mode {
         VoiceMode::Dictation => {

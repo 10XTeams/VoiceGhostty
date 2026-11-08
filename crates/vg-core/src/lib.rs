@@ -13,6 +13,7 @@ pub mod settings;
 pub mod shell;
 pub mod status;
 pub mod theme;
+pub mod voice_commands;
 
 pub use config::{Config, LlmProvider, VoiceConfig, VoiceEngineKind};
 pub use nl2command::{NlError, Translation};

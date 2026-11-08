@@ -85,6 +85,13 @@
 | 上下文 | 系统提示词里写明操作系统(macOS / Linux / Windows)、用户的 shell(`$SHELL` 末段;Windows 为 PowerShell)和当前活动分屏的工作目录,提升命令准确率;要求危险操作在解释里标注,做不到就把 `command` 留空并说明原因。 | `crates/vg-core/src/nl2command.rs`(`instructions`) |
 | 终端现场 | `llm-screen-context`(默认开)时还带上:**屏幕可见区域最后 40 行**(去掉行尾空白和末尾空行,最多 3000 字符,从末尾往前截),以及 zsh 集成看到的**上一条命令原文与退出码**(状态文件 `C <n>` 的下一行是命令,`D <n> <退出码>`)。这样「刚才为什么报错」「把上面那个文件删掉」「重跑一遍」有所指。屏幕内容会随请求发给 Claude API 或本机 Ollama,介意就关掉,此时只给工作目录。 | `crates/vg-core/src/nl2command.rs`(`TerminalContext`)、`crates/vg-app/src/terminal/session.rs`(`screen_tail`、`last_command`)、`crates/vg-core/src/status.rs`(`StateFile`、`LastCommand`) |
 
+### 语音命令与撤销
+
+| 功能 | 说明 | 源文件 |
+|---|---|---|
+| 语音命令 | `voice-commands` / 设置里的「语音命令」,默认开,**两种模式都先过这一层**。整句恰好是一条动作时直接执行、不敲字也不问 LLM:「清屏」「新标签 / 新建标签页」「关闭标签 / 关闭分屏」「下一个 / 上一个标签」「第二个标签 / 切到第三个标签页 / tab 3」「最后一个标签」「向右分屏 / 向下分屏」「搜索」「听写模式 / 自然语言模式」「撤销」,英文说法也认。只做**整句精确匹配**(去标点、空格、大小写后与词表比),绝不在句子里找关键词:「帮我清屏之前先保存」仍是要敲进去的话。执行后状态栏显示「已执行:…」;快捷键表(<kbd>⌘/</kbd>)里有完整列表。 | `crates/vg-core/src/voice_commands.rs`、`crates/vg-app/src/app.rs`(`run_voice_command`) |
+| 撤销语音上屏 | <kbd>⌘Z</kbd>(Linux / Windows <kbd>Ctrl+Shift+Z</kbd>)或说「撤销」:往上次语音落入的窗格发同样多个退格。只在那个窗格**此后没再敲过键**、且它还在时才做,否则退格会吃掉你自己打的字;一次上屏只能撤一次。 | `crates/vg-app/src/app.rs`(`undo_voice`)、`crates/vg-app/src/terminal/view.rs`(`typed_seq`) |
+
 ## 4. 安全模型
 
 - **绝不自动执行。** 识别结果只是「敲」到终端光标处(`type_text`:先滚到底部,再原样写入 PTY,不带回车),回车由你来按。
@@ -426,6 +433,7 @@ GUI 设置优先;没在 GUI 里设过的(`null`)回退配置文件。配置文�
 | `voice-spoken-symbols` | `on` | 听写模式把口述的符号名换成符号(「点」→ `.`、「横杠」→ `-`) |
 | `voice-hotwords-auto` | `on` | 开始录音时把当前目录的文件名与 git 分支名当热词塞进 Whisper 提示词 |
 | `voice-hotwords` | — | 手动热词,逗号分隔,可多行累加 |
+| `voice-commands` | `on` | 整句是「清屏」「新标签」等动作时直接执行 |
 | `voice-replace` | — | 个人词典,`听成的 => 想要的`,可写多行;设置面板里的词典优先 |
 
 源文件:`crates/vg-core/src/config.rs`、`crates/vg-core/src/paths.rs`
@@ -470,6 +478,7 @@ macOS 用 ⌘ 系;Linux / Windows 上单 Ctrl 组合要留给终端(Ctrl+T / W /
 |---|---|---|
 | 说话(松开停止;快速点按仍输入空格) | 按住 <kbd>空格</kbd> | 按住 <kbd>空格</kbd> |
 | 开始 / 停止录音 | <kbd>⌘⇧M</kbd> | <kbd>Ctrl+Shift+M</kbd> |
+| 撤销上一次语音上屏 | <kbd>⌘Z</kbd> | <kbd>Ctrl+Shift+Z</kbd> |
 | 切换听写 / 自然语言 | <kbd>⌘⇧N</kbd> | <kbd>Ctrl+Shift+N</kbd> |
 | 新建标签页 | <kbd>⌘T</kbd> | <kbd>Ctrl+Shift+T</kbd> |
 | 关闭分屏,无分屏则关标签页 | <kbd>⌘W</kbd> | <kbd>Ctrl+Shift+W</kbd> |

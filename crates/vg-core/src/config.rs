@@ -101,6 +101,8 @@ pub struct VoiceConfig {
     pub spoken_symbols: bool,
     /// 个人词典:`(听成的, 想要的)`,两种模式都先替换
     pub replacements: Vec<(String, String)>,
+    /// 整句是「清屏」「新标签」这类动作时直接执行(见 voice_commands 模块)
+    pub commands: bool,
     /// 开始录音时把当前目录的文件名和 git 分支名当热词塞进 Whisper 提示词
     pub hotwords_auto: bool,
     /// 手动热词(`voice-hotwords`,逗号分隔,可多行累加)
@@ -125,6 +127,7 @@ impl Default for VoiceConfig {
             live_caption: true,
             spoken_symbols: true,
             replacements: Vec::new(),
+            commands: true,
             hotwords_auto: true,
             hotwords: Vec::new(),
         }
@@ -325,6 +328,7 @@ impl Config {
                 "voice-global-hotkey" => v.global_hotkey = value.into(),
                 "voice-spoken-symbols" => v.spoken_symbols = parse_bool(value),
                 "voice-hotwords-auto" => v.hotwords_auto = parse_bool(value),
+                "voice-commands" => v.commands = parse_bool(value),
                 "voice-hotwords" => {
                     v.hotwords.extend(value.split(',').map(str::trim).filter(|w| !w.is_empty()).map(str::to_string))
                 }

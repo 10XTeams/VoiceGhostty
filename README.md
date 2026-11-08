@@ -42,6 +42,7 @@ Working with [Claude Code](https://claude.com/claude-code) means a lot of "type 
 |---|---|
 | 🎙 **Push-to-talk** | Hold <kbd>Space</kbd> (≥0.25s) to record, release to stop. A quick tap still types a space. Or <kbd>⌘⇧M</kbd> to toggle. With a local engine you get **live captions** as you speak; the final pass decides what is typed. |
 | 🔌 **Pluggable recognition** | Built-in [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (offline, Metal-accelerated on macOS, model preloaded at launch); or any **external command** that reads a WAV and prints text; or an OpenAI-compatible **HTTP transcription API** (OpenAI, Groq, a local faster-whisper…). `auto` picks whatever is available. |
+| 🗣 **Voice commands** | Say just "clear screen", "new tab", "tab 2", "split right" or "undo" and it runs directly, nothing typed, no model call; whole utterances only, so sentences containing those words are unaffected. |
 | 🧠 **Two voice modes** | *Dictation* (verbatim) and *Natural language* (Claude API or local Ollama → command + explanation, optionally with an Ollama cleanup pass first). <kbd>⌘⇧N</kbd> toggles. |
 | 🌏 **Chinese & English** | Recognition language `zh` / `en` / `auto`. Automatic punctuation is on by default; turn it off when you mostly dictate shell commands. |
 | 🚦 **Status lights** | Every tab and pane shows gray / yellow / green — idle, running, finished-and-waiting-on-you. Exact under zsh via shell integration; inferred from output and bells inside full-screen programs like `claude` or `vim`. The pane you're looking at stays gray; background windows still update. |
@@ -69,6 +70,7 @@ Press <kbd>⌘/</kbd> in the app for the full table. Linux / Windows don't use p
 |---|---|---|
 | Talk (tap = space; the talk key can be changed to F13 etc. in Settings) | Hold <kbd>Space</kbd> | Hold <kbd>Space</kbd> |
 | Start / stop recording · toggle voice mode | <kbd>⌘⇧M</kbd> / <kbd>⌘⇧N</kbd> | <kbd>Ctrl⇧M</kbd> / <kbd>Ctrl⇧N</kbd> |
+| Undo the last voice insertion (or say "undo") | <kbd>⌘Z</kbd> | <kbd>Ctrl⇧Z</kbd> |
 | New / close (pane first, then tab) | <kbd>⌘T</kbd> / <kbd>⌘W</kbd> | <kbd>Ctrl⇧T</kbd> / <kbd>Ctrl⇧W</kbd> |
 | Split right / down (repeatable) | <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> | <kbd>Ctrl⇧D</kbd> / <kbd>Ctrl⇧E</kbd> |
 | Move split focus | <kbd>⌘⌥</kbd>←↑↓→ | <kbd>Ctrl Alt</kbd>←↑↓→ |
