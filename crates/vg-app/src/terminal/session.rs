@@ -614,6 +614,68 @@ mod tests {
         );
     }
 
+    /// 链接端到端:⌘+悬停在 URL 上光标变手形,⌘+点击把地址(去掉句尾标点)交给 App 打开且不动选区;
+    /// 不按 ⌘ 点击还是普通选区;⌘+点在非链接文字上也不打开
+    #[test]
+    fn cmd_click_opens_link() {
+        use crate::terminal::view::{self, InputState, ViewOptions};
+        let ctx = egui::Context::default();
+        let size = GridSize { cols: 80, rows: 24, cell_w: 8, cell_h: 16 };
+        let mut s = TerminalSession::spawn(&ctx, size, 1000, &test_settings(), 96, None).unwrap();
+        s.type_text("see https://example.com/vg?x=1.");
+        assert!(wait_for(&mut s, "https://example.com/vg?x=1."));
+
+        let mut state = InputState::default();
+        let theme = Theme::DARK;
+        let opts = ViewOptions { theme: &theme, font_size: 13.0, hold: Duration::from_millis(250), ptt_enabled: true, grab_focus: true };
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0));
+        let frame = |mut events: Vec<egui::Event>, modifiers: egui::Modifiers, s: &mut TerminalSession, state: &mut InputState| {
+            // egui 从 ModifiersChanged 事件里记住当前按着的修饰键
+            events.insert(0, egui::Event::ModifiersChanged(modifiers));
+            let input = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            let mut open_url = None;
+            let mut out = ctx.run_ui(input, |ui| {
+                open_url = view::show(ui, s, state, &opts).open_url;
+            });
+            out.textures_delta.clear();
+            (open_url, out.platform_output.cursor_icon)
+        };
+        frame(vec![], egui::Modifiers::NONE, &mut s, &mut state);
+
+        let font = egui::FontId::monospace(13.0);
+        let (cw, ch) = ctx.fonts_mut(|f| (f.glyph_width(&font, 'M'), f.row_height(&font)));
+        let text = screen_text(&s);
+        let (row, line) = text.lines().enumerate().find(|(_, l)| l.contains("https://")).unwrap();
+        let link_col = line[..line.find("https://").unwrap()].chars().count();
+        let at = |col: usize| egui::pos2((col as f32 + 0.5) * cw, (row as f32 + 0.5) * ch);
+        let press = |pos, modifiers, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers };
+        let on_link = at(link_col + 10);
+        let off_link = at(link_col.saturating_sub(3)); // "see" 这个词上
+
+        // ⌘+悬停:手形光标,还没打开
+        let (url, icon) = frame(vec![egui::Event::PointerMoved(on_link)], egui::Modifiers::COMMAND, &mut s, &mut state);
+        assert_eq!(url, None);
+        assert_eq!(icon, egui::CursorIcon::PointingHand);
+
+        // ⌘+点击:交出去掉句尾句号的地址,选区不动
+        let (url, _) = frame(vec![press(on_link, egui::Modifiers::COMMAND, true)], egui::Modifiers::COMMAND, &mut s, &mut state);
+        assert_eq!(url.as_deref(), Some("https://example.com/vg?x=1"));
+        frame(vec![press(on_link, egui::Modifiers::COMMAND, false)], egui::Modifiers::COMMAND, &mut s, &mut state);
+        assert!(s.term.lock().selection.is_none());
+
+        // ⌘+点在普通文字上:不打开,按普通点击处理
+        let (url, icon) = frame(vec![egui::Event::PointerMoved(off_link), press(off_link, egui::Modifiers::COMMAND, true)], egui::Modifiers::COMMAND, &mut s, &mut state);
+        assert_eq!(url, None);
+        assert_ne!(icon, egui::CursorIcon::PointingHand);
+        frame(vec![press(off_link, egui::Modifiers::COMMAND, false)], egui::Modifiers::COMMAND, &mut s, &mut state);
+
+        // 不按 ⌘ 点链接:不打开
+        let (url, icon) = frame(vec![egui::Event::PointerMoved(on_link), press(on_link, egui::Modifiers::NONE, true)], egui::Modifiers::NONE, &mut s, &mut state);
+        assert_eq!(url, None);
+        assert_ne!(icon, egui::CursorIcon::PointingHand);
+        frame(vec![press(on_link, egui::Modifiers::NONE, false)], egui::Modifiers::NONE, &mut s, &mut state);
+    }
+
     /// 搜索端到端:输出两处标记,⌘F 先命中最新的,再往上是更早的,再往下回到最新的;找不到的报 NotFound
     #[test]
     fn search_walks_matches() {

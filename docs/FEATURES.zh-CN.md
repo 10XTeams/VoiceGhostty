@@ -94,6 +94,7 @@
 | 回滚区 | 默认每个分屏 10000 行(`scrolling_history`)。配置文件 `scrollback` 或设置面板(500–200000)可调,面板改动立即应用到已打开的分屏(缩小会马上丢掉最老的行)。 | `crates/vg-app/src/terminal/session.rs`、`crates/vg-core/src/settings.rs` |
 | 清屏 | <kbd>⌘K</kbd> 发送换页符(Ctrl-L),由 shell 重绘清屏。 | `crates/vg-app/src/terminal/session.rs` |
 | 选择与复制 | 鼠标拖选;双击选词、三击选行(400 ms、4 px 内算连击);单击没拖动则清掉选区。macOS <kbd>⌘C</kbd> 复制;Linux / Windows 上 egui 把 Ctrl+C 也变成复制事件,所以**带 Shift(Ctrl+Shift+C)才是复制**,单独 Ctrl+C 仍是中断(`^C`)。<kbd>⌘A</kbd> 全选历史与屏幕。程序通过 OSC 52 写剪贴板也会到系统剪贴板。 | `crates/vg-app/src/terminal/view.rs` |
+| 链接 | 按住 <kbd>⌘</kbd>(Linux / Windows 是 Ctrl)悬停:指针下的 URL 画下划线、光标变手形,点一下用系统默认程序打开。两种来源:程序用 OSC 8 标出的超链接(`ls --hyperlink`、`gh`),以及可见屏幕里匹配 `http(s)://`、`file://`、`ftp://`、`git://`、`ssh://`、`mailto:` 的文字。句尾标点(`.` `,` `;` 以及不配对的 `)`)不算进地址。⌘+点在非链接文字上就是普通点击。只打开这几种协议,OSC 8 给的也一样。 | `crates/vg-app/src/terminal/links.rs` |
 | 粘贴 | <kbd>⌘V</kbd>(其他平台 Ctrl+V)。终端开着括号粘贴模式时包成 `\e[200~…\e[201~`,并先剔除内容里的结束标记,防止粘贴内容「逃出」括号直接执行;否则把换行转成 `\r`。粘贴前滚到底部。 | `crates/vg-app/src/terminal/view.rs` |
 | 键盘 | xterm 风格编码:方向键 / Home / End 区分应用光标模式(DECCKM),带修饰键时用 `CSI 1;m X`;PageUp / Delete / F1–F12;Ctrl+字母 → 控制字符,Ctrl+Space → NUL;非 macOS 上 Alt+字母作为 Meta(ESC 前缀),macOS 的 Option 组合交给系统产生字符;⌘ 组合一律不发终端。可打印字符走文本事件。 | `crates/vg-app/src/terminal/keys.rs` |
 | 输入法 | IME 候选框跟随终端光标;组字中的拼音画在光标处并加下划线;组字期间空格不触发按住说话。 | `crates/vg-app/src/terminal/view.rs` |
@@ -460,8 +461,9 @@ macOS 用 ⌘ 系;Linux / Windows 上单 Ctrl 组合要留给终端(Ctrl+T / W /
 | 搜索回滚内容 | <kbd>⌘F</kbd> | <kbd>Ctrl+Shift+F</kbd> |
 | 全选 | <kbd>⌘A</kbd> | <kbd>Ctrl+Shift+A</kbd> |
 | 复制选区 / 粘贴 | <kbd>⌘C</kbd> / <kbd>⌘V</kbd> | <kbd>Ctrl+Shift+C</kbd> / <kbd>Ctrl+V</kbd>(单独 <kbd>Ctrl+C</kbd> 仍是中断) |
+| 打开指针下的链接 | <kbd>⌘</kbd>+点击 | <kbd>Ctrl</kbd>+点击 |
 | 🧩 加载器 | <kbd>⌘L</kbd> | <kbd>Ctrl+Shift+L</kbd> |
 | 设置 | <kbd>⌘,</kbd> | <kbd>Ctrl+Shift+,</kbd> |
 | 快捷键表 | <kbd>⌘/</kbd> | <kbd>Ctrl+Shift+/</kbd> |
 
-鼠标:双击标签改名、中键关标签、点击分屏切焦点、双击 / 三击终端选词 / 选行。
+鼠标:双击标签改名、中键关标签、点击分屏切焦点、双击 / 三击终端选词 / 选行、⌘+点击打开链接。

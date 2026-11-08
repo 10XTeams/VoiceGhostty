@@ -1,5 +1,6 @@
 //! 终端控件:把 alacritty 的网格画到 egui 上,并把键盘/输入法/滚轮/粘贴转成 PTY 输入。
 //! 按住空格说话也在这里拦截——只有终端有焦点时空格才有这层含义。
+//! ⌘+悬停给链接画下划线,⌘+点击把地址交给 App 去打开(见 links.rs)。
 
 use std::time::{Duration, Instant};
 
@@ -8,13 +9,15 @@ use alacritty_terminal::index::{Column, Line, Point, Side};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::color::Colors;
+use alacritty_terminal::term::search::Match;
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::vte::ansi::{Color as AnsiColor, CursorShape};
-use egui::{pos2, vec2, Color32, Event, EventFilter, FontId, ImeEvent, Pos2, Rect, Sense, Stroke};
+use egui::{pos2, vec2, Color32, CursorIcon, Event, EventFilter, FontId, ImeEvent, Pos2, Rect, Sense, Stroke};
 
 use vg_core::{Rgb, Theme};
 
 use super::keys;
+use super::links::LinkFinder;
 use super::session::{GridSize, TerminalSession};
 use crate::ptt::{PttAction, PushToTalk};
 
@@ -29,6 +32,9 @@ pub struct InputState {
     selecting: bool,
     last_click: Option<(Instant, Pos2)>,
     click_count: u8,
+    /// 链接识别(正则只编译一次)与 ⌘+悬停时指针下的链接范围(画下划线用)
+    links: LinkFinder,
+    hovered_link: Option<Match>,
 }
 
 /// 连击判定:间隔与位移
@@ -50,6 +56,8 @@ pub struct ViewOutput {
     pub actions: Vec<PttAction>,
     /// 这一帧被点了:App 把它设为当前窗格
     pub clicked: bool,
+    /// ⌘+点击了一个链接:App 用系统默认程序打开它
+    pub open_url: Option<String>,
 }
 
 pub fn show(
@@ -90,7 +98,7 @@ pub fn show(
         cell_h: ch.round() as u16,
     });
 
-    handle_mouse(ui, session, state, rect, cw, ch, under_pointer);
+    let open_url = handle_mouse(ui, session, state, rect, cw, ch, under_pointer);
 
     let mut actions = Vec::new();
     if focused {
@@ -117,7 +125,7 @@ pub fn show(
     }
 
     draw(ui, session, state, opts, rect, &font, cw, ch, focused);
-    ViewOutput { actions, clicked }
+    ViewOutput { actions, clicked, open_url }
 }
 
 /// ⌘A:选中全部历史与屏幕
@@ -242,11 +250,32 @@ fn handle_mouse(
     cw: f32,
     ch: f32,
     under_pointer: bool,
-) {
-    let (pressed, down, released, pos) = ui.input(|i| {
-        (i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.primary_released(), i.pointer.interact_pos())
+) -> Option<String> {
+    let (pressed, down, released, pos, command) = ui.input(|i| {
+        (
+            i.pointer.primary_pressed(),
+            i.pointer.primary_down(),
+            i.pointer.primary_released(),
+            i.pointer.interact_pos(),
+            i.modifiers.command,
+        )
     });
-    let Some(pos) = pos else { return };
+    state.hovered_link = None;
+    let pos = pos?;
+
+    // 按住 ⌘(Linux/Windows 是 Ctrl)悬停:指针下是链接就画下划线、换手形光标;再点一下就打开。
+    // 点到的不是链接时按普通点击处理(开始选区)
+    if command && under_pointer && !state.selecting {
+        let (point, _) = grid_point(session, rect, cw, ch, pos);
+        let link = state.links.at(&session.term.lock(), point);
+        if let Some(link) = link {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+            state.hovered_link = Some(link.range);
+            if pressed {
+                return Some(link.uri);
+            }
+        }
+    }
 
     if pressed && under_pointer {
         let now = Instant::now();
@@ -277,6 +306,7 @@ fn handle_mouse(
             term.selection = None;
         }
     }
+    None
 }
 
 fn copy_selection(ui: &egui::Ui, session: &TerminalSession) {
@@ -332,6 +362,7 @@ fn draw(
     let offset = content.display_offset as i32;
     let colors = content.colors;
     let selection = content.selection;
+    let hovered_link = state.hovered_link.as_ref();
     let cursor = content.cursor;
     let block_cursor = focused && !matches!(cursor.shape, CursorShape::Beam | CursorShape::Underline | CursorShape::Hidden);
     let mut cursor_glyph = None;
@@ -377,7 +408,8 @@ fn draw(
                 painter.galley(pos2(x + dx, y), galley, color);
             }
         }
-        if cell.flags.intersects(Flags::ALL_UNDERLINES) {
+        let in_link = hovered_link.is_some_and(|r| r.contains(&indexed.point));
+        if cell.flags.intersects(Flags::ALL_UNDERLINES) || in_link {
             let uy = y + ch - 1.0;
             painter.line_segment([pos2(x, uy), pos2(x + width, uy)], Stroke::new(1.0, c32(fg)));
         }

@@ -99,6 +99,7 @@ Source: `crates/vg-core/src/nl2command.rs` (`strip_newlines`), `crates/vg-app/sr
 | Scrollback | 10 000 lines per pane by default (`scrolling_history`). Settable from the config file (`scrollback`) or Settings (500–200 000); a Settings change applies immediately to panes that are already open (shrinking drops the oldest lines at once). | `crates/vg-app/src/terminal/session.rs`, `crates/vg-core/src/settings.rs` |
 | Clear screen | <kbd>⌘K</kbd> sends a form feed (Ctrl-L) so the shell redraws clean. | `crates/vg-app/src/terminal/session.rs` |
 | Selection & copy | Drag to select; double-click selects a word, triple-click a line (clicks within 400 ms and 4 px count as a sequence); a click without a drag clears the selection. <kbd>⌘C</kbd> copies on macOS; on Linux / Windows egui turns Ctrl+C into a copy event too, so **copying needs Shift (Ctrl+Shift+C)** and a bare Ctrl+C remains interrupt (`^C`). <kbd>⌘A</kbd> selects the whole history and screen. A program writing the clipboard through OSC 52 reaches the system clipboard as well. | `crates/vg-app/src/terminal/view.rs` |
+| Links | Hold <kbd>⌘</kbd> (Ctrl on Linux / Windows) and hover: a URL under the pointer gets underlined and the cursor becomes a hand; click to open it with the system default app. Two sources: hyperlinks a program marks with OSC 8 (`ls --hyperlink`, `gh`), and plain text matching `http(s)://`, `file://`, `ftp://`, `git://`, `ssh://` or `mailto:` on the visible screen. Trailing sentence punctuation (`.` `,` `;` `)` when unbalanced…) is dropped from the address. A ⌘-click on non-link text is an ordinary click. Only those schemes are ever opened, even from OSC 8. | `crates/vg-app/src/terminal/links.rs` |
 | Paste | <kbd>⌘V</kbd> (Ctrl+V elsewhere). With bracketed paste mode on, the text is wrapped in `\e[200~…\e[201~` after removing any end marker from the content, so a paste cannot "escape" the brackets and execute; otherwise newlines become `\r`. Scrolls to the bottom first. | `crates/vg-app/src/terminal/view.rs` |
 | Keyboard | xterm-style encoding: arrows / Home / End honour application cursor mode (DECCKM) and use `CSI 1;m X` with modifiers; PageUp / Delete / F1–F12; Ctrl+letter → control characters, Ctrl+Space → NUL; on non-macOS Alt+letter is Meta (ESC prefix), while macOS leaves Option combinations to the system to produce characters; ⌘ combinations are never sent to the terminal. Printable characters arrive as text events. | `crates/vg-app/src/terminal/keys.rs` |
 | Input method | The IME candidate window follows the terminal cursor; the pinyin being composed is drawn at the cursor with an underline; Space does not trigger push-to-talk while composing. | `crates/vg-app/src/terminal/view.rs` |
@@ -550,9 +551,10 @@ the terminal (Ctrl+T / W / D all mean something in a shell), so most shortcuts u
 | Search scrollback | <kbd>⌘F</kbd> | <kbd>Ctrl+Shift+F</kbd> |
 | Select all | <kbd>⌘A</kbd> | <kbd>Ctrl+Shift+A</kbd> |
 | Copy selection / paste | <kbd>⌘C</kbd> / <kbd>⌘V</kbd> | <kbd>Ctrl+Shift+C</kbd> / <kbd>Ctrl+V</kbd> (a bare <kbd>Ctrl+C</kbd> is still interrupt) |
+| Open link under pointer | <kbd>⌘</kbd>+click | <kbd>Ctrl</kbd>+click |
 | 🧩 Loader | <kbd>⌘L</kbd> | <kbd>Ctrl+Shift+L</kbd> |
 | Settings | <kbd>⌘,</kbd> | <kbd>Ctrl+Shift+,</kbd> |
 | Shortcut reference | <kbd>⌘/</kbd> | <kbd>Ctrl+Shift+/</kbd> |
 
 Mouse: double-click a tab to rename it, middle-click to close it, click a pane to focus it, double- / triple-click in the
-terminal to select a word / line.
+terminal to select a word / line, ⌘-click to open a link.

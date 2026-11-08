@@ -15,7 +15,7 @@ use crate::pipeline::{Pipeline, PipelineEvent, VoiceMode};
 use crate::ptt::PttAction;
 use crate::shortcuts::Action;
 use crate::split::{Axis, Dir};
-use crate::terminal::search::SearchState;
+use crate::terminal::{self, search::SearchState};
 use crate::terminal::session::{GridSize, TerminalSession};
 use crate::terminal::view::{self, InputState, ViewOptions};
 use crate::style;
@@ -459,6 +459,9 @@ impl VoiceGhosttyApp {
             let out = view::show(&mut child, &mut pane.session, &mut pane.input, &opts);
             if out.clicked {
                 clicked = Some(id);
+            }
+            if let Some(url) = out.open_url {
+                terminal::links::open(&url);
             }
             actions.extend(out.actions);
             // 分屏时其余窗格压暗一层,看得出语音和输入会去哪

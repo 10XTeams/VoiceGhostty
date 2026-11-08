@@ -78,6 +78,7 @@ Rust 编写,macOS 预编译发布,Linux / Windows 可从源码构建。按住说
 | 第 N 个 / 最后一个标签页 | <kbd>⌘1…8</kbd> / <kbd>⌘9</kbd> | <kbd>Alt 1…8</kbd> / <kbd>Alt 9</kbd> |
 | 搜索 / 清屏 / 全选 | <kbd>⌘F</kbd> / <kbd>⌘K</kbd> / <kbd>⌘A</kbd> | <kbd>Ctrl⇧F</kbd> / <kbd>K</kbd> / <kbd>A</kbd> |
 | 复制 | <kbd>⌘C</kbd> | <kbd>Ctrl⇧C</kbd>(单独的 Ctrl+C 仍是中断) |
+| 打开链接 | <kbd>⌘</kbd>+点击 | <kbd>Ctrl</kbd>+点击 |
 | 加载器 / 设置 / 快捷键表 | <kbd>⌘L</kbd> / <kbd>⌘,</kbd> / <kbd>⌘/</kbd> | <kbd>Ctrl⇧L</kbd> / <kbd>,</kbd> / <kbd>/</kbd> |
 | 字号 | <kbd>⌘+</kbd> <kbd>⌘-</kbd> <kbd>⌘0</kbd> | <kbd>Ctrl⇧+</kbd> <kbd>-</kbd> <kbd>0</kbd> |
 
