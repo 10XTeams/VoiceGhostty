@@ -17,7 +17,9 @@
 
 | 功能 | 说明 | 源文件 |
 |---|---|---|
-| 按住说话 | 按住 <kbd>空格</kbd> ≥ `voice-hold-ms`(默认 250 ms)开始录音,松开即停。低于阈值的快速点按会原样补发为普通空格,不影响正常输入;按住期间吞掉系统按键重复。只在终端窗格有键盘焦点时生效;带 Ctrl / Alt / ⌘ 的空格不拦;输入法正在组字(拼音还没上屏)时空格归输入法。窗格失焦时放弃当前按键,正在录音则停止。 | `crates/vg-app/src/ptt.rs`、`crates/vg-app/src/terminal/view.rs` |
+| 按住说话 | 按住**说话键**(默认 <kbd>空格</kbd>)≥ `voice-hold-ms`(默认 250 ms)开始录音,松开即停。低于阈值的快速点按会原样补发这个键本来的按键(空格就是空格),不影响正常输入;按住期间吞掉系统按键重复。只在终端窗格有键盘焦点时生效;带 Ctrl / Alt / ⌘ 的组合不拦;输入法正在组字(拼音还没上屏)时空格归输入法。窗格失焦时放弃当前按键,正在录音则停止。 | `crates/vg-app/src/ptt.rs`、`crates/vg-app/src/terminal/view.rs` |
+| 说话键可换 | `voice-ptt-key` / 设置里的「说话键」:`Space`(默认)、`Insert`、`F13`–`F19`(配置文件里任何 egui 认识的按键名都行,但建议用不产生字符的键)。把 CapsLock 映射成 F13 之后就能用它说话,空格完全不受影响。状态栏胶囊和快捷键表里的提示跟着变。 | `crates/vg-core/src/config.rs`、`crates/vg-app/src/app.rs`(`ptt_key`) |
+| 全局热键 | `voice-global-hotkey`(配置文件;默认不设),如 `ctrl+alt+space`、`cmd+shift+f13`、`f19`。**窗口在后台也能按住说话**,识别结果照样落到活动窗格。按下开始录音;松开时按住已超过 `voice-hold-ms` 就停止,点一下则保持录音、再按一下停止。macOS 用 Carbon `RegisterEventHotKey` 直接 FFI:系统级独占这个组合键、不需要辅助功能权限、按下与松开各有事件,回调在主线程 run loop 上,塞进通道后请求重绘。裸字母 / 数字必须带修饰键(否则会抢走所有程序的这个键),F 键可以单独用;被别的程序占用或写法不对时设置页「全局热键」一行显示原因。其他平台暂不支持。 | `crates/vg-app/src/hotkey.rs`、`crates/vg-app/src/app.rs`(`sync_global_hotkey`) |
 | 开关录音 | <kbd>⌘⇧M</kbd>,或点状态栏的语音胶囊。录音中胶囊变红,显示「正在听」、28 根柱子的电平波形(约每 40 ms 采样一次)和计时;再点一下停止。 | `crates/vg-app/src/app.rs`、`crates/vg-app/src/chrome.rs` |
 | 录音 | cpal 打开系统默认输入设备(或 `voice-device` 指定的那个);f32 / i16 / u16 三种采样格式,多声道取平均下混成单声道。cpal 的 `Stream` 在 macOS 上不是 `Send`,所以流在专用线程里创建和持有,主线程只通过通道发「停止」并取回录音。录音期间持续更新 RMS 电平供界面画波形。 | `crates/vg-voice/src/recorder.rs` |
 | 预处理 | 线性插值重采样到 16 kHz(Whisper 系的原生采样率);以 20 ms 为窗、RMS 阈值 0.01 裁掉首尾静音,两端各留 200 ms 余量避免吞掉起音。全程静音、或有声段短于 0.3 s → 不跑识别,状态栏提示「没听到声音」。 | `crates/vg-voice/src/clip.rs`、`crates/vg-voice/src/lib.rs` |
@@ -355,6 +357,10 @@
 | 语音 | 语音引擎 | `自动` / `内置 whisper` / `HTTP 接口` / `外部命令` / `关闭`,每项带一句提示(见第 2 节)。 |
 | 语音 | 识别语言 | `中文` / `English` / `自动检测`,只影响语音识别(见第 16 节)。 |
 | 语音 | 自动标点 | 听写结果是否带标点,默认开;主要口述 shell 命令时建议关掉。 |
+| 语音 | 说话键 | `空格` / `Insert` / `F13`–`F19`。 |
+| 语音 | 全局热键 | 只读:显示配置文件里 `voice-global-hotkey` 注册的结果或失败原因。 |
+| 语音 | 实时字幕 / 口述符号 | 见第 1 节、第 3 节。 |
+| 语音词典 | — | 「听成的 → 想要的」列表,可增删,见第 3 节。 |
 | 终端 | 完成提示音 | 状态灯转绿时响一声,默认开;旁边 ▶ 试听。即时作用于监视线程。 |
 | 终端 | 保存会话记录 | 会话历史开关,默认开,对此后新开的分屏生效;旁边文件夹按钮打开记录目录。 |
 | 终端 | 默认文件夹 | <kbd>⌘T</kbd> 新标签页和启动时第一个窗格的起始目录,默认家目录;文件夹按钮选目录,✕ 恢复为家目录。目录已不存在时回到家目录。分屏不受它影响,跟随原窗格(见第 7 节)。 |
@@ -413,7 +419,9 @@ GUI 设置优先;没在 GUI 里设过的(`null`)回退配置文件。配置文�
 | `voice-command` | — | 外部命令模板,`{wav}` `{lang}` 占位 |
 | `voice-model` | `<配置目录>/models/` 里第一个 `ggml-*.bin` | 内置 whisper 的 ggml 模型路径(支持 `~`) |
 | `voice-device` | 系统默认 | 麦克风设备名 |
-| `voice-hold-ms` | `250` | 按住空格多久算「按住说话」 |
+| `voice-hold-ms` | `250` | 按住说话键多久算「按住说话」 |
+| `voice-ptt-key` | `Space` | 说话键(egui 按键名:`Space`、`Insert`、`F13`…) |
+| `voice-global-hotkey` | — | 全局热键,如 `ctrl+alt+space`、`f19`;macOS |
 | `voice-live-caption` | `on` | 录音期间显示实时字幕(只对本机引擎生效) |
 | `voice-spoken-symbols` | `on` | 听写模式把口述的符号名换成符号(「点」→ `.`、「横杠」→ `-`) |
 | `voice-hotwords-auto` | `on` | 开始录音时把当前目录的文件名与 git 分支名当热词塞进 Whisper 提示词 |

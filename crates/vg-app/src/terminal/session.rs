@@ -519,7 +519,7 @@ mod tests {
 
         let mut state = InputState::default();
         let theme = Theme::DARK;
-        let opts = ViewOptions { theme: &theme, font_size: 13.0, hold: Duration::from_millis(250), ptt_enabled: true, grab_focus: true };
+        let opts = ViewOptions { theme: &theme, font_size: 13.0, hold: Duration::from_millis(250), ptt_enabled: true, ptt_key: egui::Key::Space, grab_focus: true };
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0))),
             ..Default::default()
@@ -591,7 +591,7 @@ mod tests {
 
         let mut state = InputState::default();
         let theme = Theme::DARK;
-        let opts = ViewOptions { theme: &theme, font_size: 13.0, hold: Duration::from_millis(250), ptt_enabled: true, grab_focus: true };
+        let opts = ViewOptions { theme: &theme, font_size: 13.0, hold: Duration::from_millis(250), ptt_enabled: true, ptt_key: egui::Key::Space, grab_focus: true };
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0));
         let frame = |events: Vec<egui::Event>, s: &mut TerminalSession, state: &mut InputState| {
             let input = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
@@ -649,7 +649,7 @@ mod tests {
 
         let mut state = InputState::default();
         let theme = Theme::DARK;
-        let opts = ViewOptions { theme: &theme, font_size: 13.0, hold: Duration::from_millis(250), ptt_enabled: true, grab_focus: true };
+        let opts = ViewOptions { theme: &theme, font_size: 13.0, hold: Duration::from_millis(250), ptt_enabled: true, ptt_key: egui::Key::Space, grab_focus: true };
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0));
         let frame = |mut events: Vec<egui::Event>, modifiers: egui::Modifiers, s: &mut TerminalSession, state: &mut InputState| {
             // egui 从 ModifiersChanged 事件里记住当前按着的修饰键
@@ -759,6 +759,7 @@ mod tests {
                         font_size: 13.0,
                         hold: Duration::from_millis(250),
                         ptt_enabled: true,
+                        ptt_key: egui::Key::Space,
                         grab_focus: id == 1,
                     };
                     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).id_salt(("pane", id)));

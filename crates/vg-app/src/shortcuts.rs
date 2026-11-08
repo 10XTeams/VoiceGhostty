@@ -128,21 +128,23 @@ impl Action {
     }
 }
 
-/// 帮助窗口的分组,按 Swift 版的结构
-pub fn help_sections() -> Vec<(&'static str, Vec<(String, &'static str)>)> {
+/// 帮助窗口的分组,按 Swift 版的结构。`ptt_key`:说话键的名字(默认「空格」);
+/// `global_hotkey`:已注册的全局热键标签,没有则不列
+pub fn help_sections(ptt_key: &str, global_hotkey: Option<&str>) -> Vec<(&'static str, Vec<(String, &'static str)>)> {
     use Action::*;
     let row = |a: Action, desc: &'static str| (a.label(), desc);
     let tab_n = if MAC { "⌘1…⌘8" } else { "Alt+1…8" };
     let move_n = if MAC { "⌘⌃1…⌘⌃8" } else { "Ctrl+Alt+1…8" };
+    let mut voice = vec![
+        (format!("按住{ptt_key}"), "说话,松开结束"),
+        row(ToggleRecording, "开始 / 停止录音"),
+        row(ToggleMode, "切换听写 / 自然语言"),
+    ];
+    if let Some(g) = global_hotkey {
+        voice.push((g.to_string(), "全局热键:窗口在后台也能按住说话"));
+    }
     vec![
-        (
-            "语音",
-            vec![
-                ("按住空格".into(), "说话,松开结束"),
-                row(ToggleRecording, "开始 / 停止录音"),
-                row(ToggleMode, "切换听写 / 自然语言"),
-            ],
-        ),
+        ("语音", voice),
         (
             "标签页",
             vec![
@@ -225,6 +227,6 @@ mod tests {
             assert_eq!(Action::FocusLeft.label(), "⌥⌘←");
             assert!(!Action::MoveToNewTab.label().contains('^'));
         }
-        assert!(!help_sections().is_empty());
+        assert!(!help_sections("空格", Some("⌃⌥Space")).is_empty());
     }
 }

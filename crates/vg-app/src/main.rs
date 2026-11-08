@@ -2,6 +2,7 @@
 
 mod app;
 mod fonts;
+mod hotkey;
 mod icons;
 mod kit;
 mod loader_panel;

@@ -89,8 +89,12 @@ pub struct VoiceConfig {
     pub model_path: Option<PathBuf>,
     /// 麦克风设备名(空 = 系统默认)
     pub device: String,
-    /// 按住空格多久算"按住说话",低于此值视为普通空格
+    /// 按住说话键多久算"按住说话",低于此值视为普通点按
     pub hold_ms: u64,
+    /// 说话键(egui 按键名,默认 Space;也可以是 F13–F19、Insert 等不产生字符的键)
+    pub ptt_key: String,
+    /// 全局热键(`ctrl+alt+space`、`f19` 等;空 = 不注册)。窗口在后台也能按住说话,目前只支持 macOS
+    pub global_hotkey: String,
     /// 录音期间边说边出实时字幕(只对本机引擎生效:进程内 whisper、本机 HTTP 服务)
     pub live_caption: bool,
     /// 听写模式把口述的符号名换成符号(「点」→ `.`、「横杠」→ `-`,见 rewrite 模块)
@@ -116,6 +120,8 @@ impl Default for VoiceConfig {
             model_path: None,
             device: String::new(),
             hold_ms: 250,
+            ptt_key: "Space".into(),
+            global_hotkey: String::new(),
             live_caption: true,
             spoken_symbols: true,
             replacements: Vec::new(),
@@ -315,6 +321,8 @@ impl Config {
                     }
                 }
                 "voice-live-caption" => v.live_caption = parse_bool(value),
+                "voice-ptt-key" => v.ptt_key = value.into(),
+                "voice-global-hotkey" => v.global_hotkey = value.into(),
                 "voice-spoken-symbols" => v.spoken_symbols = parse_bool(value),
                 "voice-hotwords-auto" => v.hotwords_auto = parse_bool(value),
                 "voice-hotwords" => {

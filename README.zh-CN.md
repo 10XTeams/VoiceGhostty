@@ -67,7 +67,7 @@ Rust 编写,macOS 预编译发布,Linux / Windows 可从源码构建。按住说
 
 | 功能 | macOS | Linux / Windows |
 |---|---|---|
-| 说话(点按 = 空格) | 按住 <kbd>空格</kbd> | 按住 <kbd>空格</kbd> |
+| 说话(点按 = 空格;说话键可在设置里换成 F13 等) | 按住 <kbd>空格</kbd> | 按住 <kbd>空格</kbd> |
 | 开始 / 停止录音 · 切换语音模式 | <kbd>⌘⇧M</kbd> / <kbd>⌘⇧N</kbd> | <kbd>Ctrl⇧M</kbd> / <kbd>Ctrl⇧N</kbd> |
 | 新建 / 关闭(先关分屏,再关标签页) | <kbd>⌘T</kbd> / <kbd>⌘W</kbd> | <kbd>Ctrl⇧T</kbd> / <kbd>Ctrl⇧W</kbd> |
 | 向右 / 向下分屏(可反复) | <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> | <kbd>Ctrl⇧D</kbd> / <kbd>Ctrl⇧E</kbd> |
@@ -175,6 +175,8 @@ voice-engine      = auto       # auto | whisper | http | command | off
 voice-language    = zh         # zh | en | auto
 voice-punctuation = on         # 主要口述 shell 命令时建议 off
 voice-hold-ms     = 250        # 按住多久算"按住说话"
+voice-ptt-key     = Space      # 说话键:Space | Insert | F13…F19
+voice-global-hotkey =          # 全局热键(macOS),如 ctrl+alt+space;窗口在后台也能说话
 voice-live-caption = on        # 录音时显示实时字幕(只对本机引擎生效)
 voice-hotwords    =            # 热词,逗号分隔;当前目录文件名和分支名会自动加入
 voice-device      =            # 麦克风名,留空用系统默认

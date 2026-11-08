@@ -67,7 +67,7 @@ Press <kbd>⌘/</kbd> in the app for the full table. Linux / Windows don't use p
 
 | Action | macOS | Linux / Windows |
 |---|---|---|
-| Talk (tap = space) | Hold <kbd>Space</kbd> | Hold <kbd>Space</kbd> |
+| Talk (tap = space; the talk key can be changed to F13 etc. in Settings) | Hold <kbd>Space</kbd> | Hold <kbd>Space</kbd> |
 | Start / stop recording · toggle voice mode | <kbd>⌘⇧M</kbd> / <kbd>⌘⇧N</kbd> | <kbd>Ctrl⇧M</kbd> / <kbd>Ctrl⇧N</kbd> |
 | New / close (pane first, then tab) | <kbd>⌘T</kbd> / <kbd>⌘W</kbd> | <kbd>Ctrl⇧T</kbd> / <kbd>Ctrl⇧W</kbd> |
 | Split right / down (repeatable) | <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> | <kbd>Ctrl⇧D</kbd> / <kbd>Ctrl⇧E</kbd> |
@@ -185,7 +185,9 @@ scrollback  = 10000            # lines kept per pane (Settings overrides this)
 voice-engine      = auto       # auto | whisper | http | command | off
 voice-language    = zh         # zh | en | auto
 voice-punctuation = on         # off when you mostly dictate shell commands
-voice-hold-ms     = 250        # how long a Space press counts as push-to-talk
+voice-hold-ms     = 250        # how long a press counts as push-to-talk
+voice-ptt-key     = Space      # talk key: Space | Insert | F13…F19
+voice-global-hotkey =          # global hotkey (macOS), e.g. ctrl+alt+space; talk while the window is in the background
 voice-live-caption = on        # live captions while recording (local engines only)
 voice-hotwords    =            # hotwords, comma-separated; cwd file names and git branch are added automatically
 voice-device      =            # microphone name, blank = system default

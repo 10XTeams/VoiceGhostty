@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use vg_core::nl2command::TerminalContext;
 use vg_core::{Config, Settings, VoiceEngineKind};
 
+use crate::hotkey::{GlobalHotkey, HotkeyEvent};
 use crate::loader_panel::LoaderPanel;
 use crate::monitor::Monitor;
 use crate::pipeline::{Pipeline, PipelineEvent, VoiceMode};
@@ -87,6 +88,11 @@ pub struct VoiceGhosttyApp {
     level_sampled: Option<Instant>,
     /// 实时字幕:录音期间到目前为止识别出的内容,松开后保留到最终结果出来
     pub(crate) caption: Option<String>,
+    /// 全局热键(配置了且注册成功时)与它按下的时刻:松开时按住够久就停止,否则当作开关
+    global_hotkey: Option<GlobalHotkey>,
+    global_hotkey_pressed: Option<Instant>,
+    /// 注册失败的原因,设置页显示
+    pub(crate) global_hotkey_error: Option<String>,
     #[cfg(test)]
     preview_voice: Option<VoiceUi>,
 }
@@ -138,9 +144,13 @@ impl VoiceGhosttyApp {
             levels: VecDeque::new(),
             level_sampled: None,
             caption: None,
+            global_hotkey: None,
+            global_hotkey_pressed: None,
+            global_hotkey_error: None,
             #[cfg(test)]
             preview_voice: None,
         };
+        app.sync_global_hotkey(&cc.egui_ctx);
         let first_cwd = app.settings.default_dir.clone();
         if let Some(pane) = app.spawn_pane(&cc.egui_ctx, first_cwd) {
             app.ws.add_tab(pane);
@@ -206,8 +216,47 @@ impl VoiceGhosttyApp {
     pub(crate) fn reload_config(&mut self, ctx: &egui::Context) {
         self.config = effective_config(&self.settings);
         style::apply(ctx, &self.config.theme());
+        self.sync_global_hotkey(ctx);
         if let Err(e) = self.settings.save() {
             self.set_status(format!("设置保存失败:{e}"), true);
+        }
+    }
+
+    /// 让已注册的全局热键跟配置一致:配置变了就注销重注册,清空就注销
+    fn sync_global_hotkey(&mut self, ctx: &egui::Context) {
+        let want = self.config.voice.global_hotkey.trim().to_string();
+        if self.global_hotkey.as_ref().map(|h| h.spec.as_str()) == Some(want.as_str()) {
+            return;
+        }
+        self.global_hotkey = None; // 先注销旧的
+        self.global_hotkey_error = None;
+        if want.is_empty() {
+            return;
+        }
+        match GlobalHotkey::register(&want, ctx) {
+            Ok(h) => self.global_hotkey = h,
+            Err(e) => {
+                log::warn!("global hotkey: {e}");
+                self.global_hotkey_error = Some(e);
+            }
+        }
+    }
+
+    /// 说话键(配置里的按键名,认不出来就回到空格)
+    pub(crate) fn ptt_key(&self) -> egui::Key {
+        egui::Key::from_name(&self.config.voice.ptt_key).unwrap_or(egui::Key::Space)
+    }
+
+    /// 已注册的全局热键的标签(`⌃⌥Space`),没配或注册失败则 None
+    pub(crate) fn global_hotkey_label(&self) -> Option<String> {
+        self.global_hotkey.as_ref().map(|h| crate::hotkey::pretty(&h.spec))
+    }
+
+    /// 说话键给人看的名字
+    pub(crate) fn ptt_key_label(&self) -> String {
+        match self.ptt_key() {
+            egui::Key::Space => "空格".to_string(),
+            k => k.name().to_string(),
         }
     }
 
@@ -353,6 +402,35 @@ impl VoiceGhosttyApp {
             }
         }
 
+        // 全局热键:按下开始录音;松开时按住够久就停止,点一下则保持录音、再按一下停止
+        let mut hotkey_events = Vec::new();
+        if let Some(h) = &self.global_hotkey {
+            while let Ok(ev) = h.rx.try_recv() {
+                hotkey_events.push(ev);
+            }
+        }
+        for ev in hotkey_events {
+            let hold = Duration::from_millis(self.config.voice.hold_ms);
+            match ev {
+                HotkeyEvent::Pressed => {
+                    if self.pipeline.is_recording() {
+                        self.global_hotkey_pressed = None;
+                        self.on_ptt(PttAction::StopRecording);
+                    } else if !self.pipeline.is_busy() {
+                        self.global_hotkey_pressed = Some(Instant::now());
+                        self.on_ptt(PttAction::StartRecording);
+                    }
+                }
+                HotkeyEvent::Released => {
+                    if let Some(at) = self.global_hotkey_pressed.take() {
+                        if at.elapsed() >= hold && self.pipeline.is_recording() {
+                            self.on_ptt(PttAction::StopRecording);
+                        }
+                    }
+                }
+            }
+        }
+
         while let Ok(event) = self.pipeline.rx.try_recv() {
             match event {
                 PipelineEvent::Stage(s) => self.set_status(s, false),
@@ -470,6 +548,7 @@ impl VoiceGhosttyApp {
         // 键盘焦点归终端,除非搜索框或改名框在用
         let terminal_owns_keyboard = !self.search_open && self.renaming.is_none();
 
+        let ptt_key = self.ptt_key();
         let mut clicked = None;
         let mut actions = vec![];
         for (id, rect) in frames {
@@ -480,6 +559,7 @@ impl VoiceGhosttyApp {
                 font_size: self.font_size,
                 hold: Duration::from_millis(self.config.voice.hold_ms),
                 ptt_enabled: self.config.voice.engine != VoiceEngineKind::Off && !self.pipeline.is_busy(),
+                ptt_key,
                 grab_focus: is_active && terminal_owns_keyboard,
             };
             // 底色铺满整个窗格,文字往里缩一点:贴边的字不好读

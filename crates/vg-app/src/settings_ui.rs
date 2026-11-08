@@ -63,6 +63,29 @@ impl VoiceGhosttyApp {
                         }
                     });
                     kit::hairline(ui);
+                    kit::setting_row(ui, "说话键", Some("按住它说话,点一下仍是这个键本来的功能;F13–F19 适合把 CapsLock 映射过去的人"), |ui| {
+                        let current = self.config.voice.ptt_key.clone();
+                        let shown = if current == "Space" { "空格".to_string() } else { current.clone() };
+                        egui::ComboBox::from_id_salt("ptt-key").width(150.0).selected_text(shown).show_ui(ui, |ui| {
+                            for name in PTT_KEYS {
+                                let label = if *name == "Space" { "空格" } else { name };
+                                if ui.selectable_label(current == *name, label).clicked() {
+                                    self.settings.ptt_key = Some((*name).into());
+                                    changed = true;
+                                }
+                            }
+                        });
+                    });
+                    kit::hairline(ui);
+                    kit::setting_row(ui, "全局热键", Some("窗口在后台也能按住说话;在配置文件里写 voice-global-hotkey,如 ctrl+alt+space"), |ui| {
+                        let text = match (&self.global_hotkey_error, self.global_hotkey_label()) {
+                            (Some(err), _) => RichText::new(err.as_str()).font(style::small()).color(p.error),
+                            (None, Some(label)) => RichText::new(label).font(style::small()).color(p.text),
+                            (None, None) => RichText::new("未设置").font(style::small()).color(p.text3),
+                        };
+                        ui.label(text);
+                    });
+                    kit::hairline(ui);
                     kit::setting_row(ui, "实时字幕", Some("边说边在状态栏显示识别到的内容;只对本机引擎生效"), |ui| {
                         let mut live = self.config.voice.live_caption;
                         if toggle(ui, &mut live).changed() {
@@ -367,9 +390,12 @@ fn engine_hint(kind: VoiceEngineKind) -> &'static str {
         VoiceEngineKind::Whisper => "本地离线,模型放在 models/ 目录",
         VoiceEngineKind::Http => "OpenAI 兼容的转写接口",
         VoiceEngineKind::Command => "调用 voice-command 配置的程序",
-        VoiceEngineKind::Off => "按住空格就是空格",
+        VoiceEngineKind::Off => "说话键恢复成普通按键",
     }
 }
+
+/// 设置页可选的说话键(egui 按键名)。都是不会产生字符的键,点按补发时不会和文字输入打架
+const PTT_KEYS: &[&str] = &["Space", "Insert", "F13", "F14", "F15", "F16", "F17", "F18", "F19"];
 
 /// iOS 风格的开关
 fn toggle(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {

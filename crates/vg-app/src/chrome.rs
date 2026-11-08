@@ -336,11 +336,12 @@ impl VoiceGhosttyApp {
         let painter = ui.painter().clone();
         match voice {
             VoiceUi::Idle(engine) => {
+                let key = self.ptt_key_label();
                 let resp = capsule(ui, h, |ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(14.0, h), Sense::hover());
                     icons::paint(ui.painter(), r, 14.0, Icon::Mic, p.text2);
                     ui.label(RichText::new("按住").color(p.text2));
-                    kit::keycap(ui, "空格");
+                    kit::keycap(ui, &key);
                     ui.label(RichText::new("说话").color(p.text2));
                     ui.label(RichText::new(engine).font(style::small()).color(p.text3));
                 });
@@ -399,7 +400,7 @@ impl VoiceGhosttyApp {
                 let time = format!("{}:{:02}", secs as u32 / 60, secs as u32 % 60);
                 painter.text(pos2(x, cy), Align2::LEFT_CENTER, time, egui::FontId::monospace(11.5), p.text2);
                 ui.ctx().request_repaint_after(Duration::from_millis(33));
-                if resp.on_hover_text("松开空格结束;或点这里停止").clicked() {
+                if resp.on_hover_text(format!("松开{}结束;或点这里停止", self.ptt_key_label())).clicked() {
                     self.on_ptt(PttAction::StopRecording);
                 }
             }
@@ -550,7 +551,8 @@ impl VoiceGhosttyApp {
         kit::window("快捷键").anchor(Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
             ui.set_width(680.0);
             close = kit::window_header(ui, "快捷键", Some(&format!("随时按 {} 打开这张表", Action::Help.label())));
-            let sections = shortcuts::help_sections();
+            let global = self.global_hotkey_label();
+            let sections = shortcuts::help_sections(&self.ptt_key_label(), global.as_deref());
             // 两栏按行数大致对半分
             let (left, right): (Vec<_>, Vec<_>) = sections.iter().partition(|(t, _)| ["语音", "标签页", "其他"].contains(t));
             egui::ScrollArea::vertical().max_height(max_h).min_scrolled_height(max_h).show(ui, |ui| {

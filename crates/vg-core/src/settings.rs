@@ -24,6 +24,8 @@ pub struct Settings {
     pub live_caption: Option<bool>,
     /// 覆盖 voice-spoken-symbols
     pub spoken_symbols: Option<bool>,
+    /// 覆盖 voice-ptt-key
+    pub ptt_key: Option<String>,
     /// 个人词典(设置面板维护);None 时用配置文件里的 voice-replace
     pub voice_replacements: Option<Vec<(String, String)>>,
     /// 覆盖 scrollback
@@ -52,6 +54,7 @@ impl Default for Settings {
             adds_punctuation: None,
             live_caption: None,
             spoken_symbols: None,
+            ptt_key: None,
             voice_replacements: None,
             scrollback: None,
             save_history: true,
@@ -107,6 +110,9 @@ impl Settings {
         }
         if let Some(s) = self.spoken_symbols {
             config.voice.spoken_symbols = s;
+        }
+        if let Some(k) = &self.ptt_key {
+            config.voice.ptt_key = k.clone();
         }
         if let Some(rules) = &self.voice_replacements {
             config.voice.replacements = rules.clone();

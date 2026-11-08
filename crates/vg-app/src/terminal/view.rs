@@ -45,8 +45,10 @@ pub struct ViewOptions<'a> {
     pub theme: &'a Theme,
     pub font_size: f32,
     pub hold: Duration,
-    /// 为 false 时空格就是空格(语音关闭 / 正在识别)
+    /// 为 false 时说话键就是普通按键(语音关闭 / 正在识别)
     pub ptt_enabled: bool,
+    /// 说话键(默认空格)
+    pub ptt_key: egui::Key,
     /// 这是当前窗格,且键盘焦点应该在终端上(没有搜索框、改名框之类的在用键盘)
     pub grab_focus: bool,
 }
@@ -154,8 +156,9 @@ fn handle_input(
 
     for event in events {
         match event {
-            Event::Key { key: egui::Key::Space, pressed, repeat, modifiers, .. }
-                if opts.ptt_enabled
+            Event::Key { key, pressed, repeat, modifiers, .. }
+                if key == opts.ptt_key
+                    && opts.ptt_enabled
                     && state.preedit.is_empty()
                     && !modifiers.ctrl
                     && !modifiers.alt
@@ -165,14 +168,21 @@ fn handle_input(
                     state.ptt.key_down(now);
                 } else if !pressed {
                     match state.ptt.key_up(now, opts.hold) {
-                        PttAction::TypeSpace => session.write(&b" "[..]),
+                        // 点按:补发这个键原本的按键
+                        PttAction::TypeSpace => {
+                            if key == egui::Key::Space {
+                                session.write(&b" "[..]);
+                            } else if let Some(bytes) = keys::encode(key, modifiers, mode.contains(TermMode::APP_CURSOR)) {
+                                session.write(bytes);
+                            }
+                        }
                         PttAction::None => {}
                         other => actions.push(other),
                     }
                 }
             }
             // 空格由上面的按键事件负责(点按时补发),这里丢掉以免重复
-            Event::Text(t) if opts.ptt_enabled && t == " " && state.preedit.is_empty() => {}
+            Event::Text(t) if opts.ptt_enabled && opts.ptt_key == egui::Key::Space && t == " " && state.preedit.is_empty() => {}
             Event::Text(t) => {
                 let mut term = session.term.lock();
                 term.scroll_display(Scroll::Bottom);
