@@ -35,6 +35,8 @@ pub enum Action {
     Loader,
     Settings,
     Help,
+    /// 窗格列表侧边栏
+    Sidebar,
 }
 
 const MAC: bool = cfg!(target_os = "macos");
@@ -107,6 +109,7 @@ impl Action {
             Loader => pick(m(CMD, Key::L), m(CS, Key::L)),
             Settings => pick(m(CMD, Key::Comma), m(CS, Key::Comma)),
             Help => pick(m(CMD, Key::Slash), m(CS, Key::Slash)),
+            Sidebar => pick(m(CMD, Key::B), m(CS, Key::B)),
         }
     }
 
@@ -194,6 +197,7 @@ pub fn help_sections(ptt_key: &str, global_hotkey: Option<&str>) -> Vec<(&'stati
             "其他",
             vec![
                 row(SelectAll, "全选"),
+                row(Sidebar, "窗格列表侧边栏(所有标签页 / 分屏的状态)"),
                 row(Loader, "加载器(技能 / Agent / 插件)"),
                 row(Settings, "设置"),
                 row(Help, "快捷键帮助"),
@@ -212,7 +216,7 @@ mod tests {
         let mut all: Vec<Action> = vec![
             NewTab, Close, SplitRight, SplitDown, NextTab, PrevTab, LastTab, FocusLeft, FocusRight, FocusUp,
             FocusDown, MoveToNewTab, MoveToPrevTab, MoveToNextTab, FontBigger, FontSmaller, FontReset,
-            ClearScreen, Find, SelectAll, ToggleRecording, ToggleMode, UndoVoice, Loader, Settings, Help,
+            ClearScreen, Find, SelectAll, ToggleRecording, ToggleMode, UndoVoice, Loader, Settings, Help, Sidebar,
         ];
         all.extend((1..=8).map(Tab));
         all.extend((1..=8).map(MoveToTab));

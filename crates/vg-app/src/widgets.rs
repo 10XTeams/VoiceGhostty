@@ -31,6 +31,7 @@ pub fn status_color_of(p: &Palette, status: SessionStatus) -> Color32 {
         SessionStatus::Normal => p.text3,
         SessionStatus::Busy => p.busy,
         SessionStatus::Done => p.done,
+        SessionStatus::Waiting => p.warn,
     }
 }
 

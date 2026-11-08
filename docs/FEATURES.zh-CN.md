@@ -163,10 +163,13 @@
 
 源文件:`crates/vg-app/src/split.rs`、`crates/vg-app/src/workspace.rs`、`crates/vg-app/src/app.rs`(`terminals`)
 
-## 8. 状态灯(忙 / 完成)
+## 8. 状态灯(忙 / 完成 / 等输入)与窗格列表
 
-三态圆点 —— 灰(空闲)、黄(执行中)、绿(已完成,该你了) —— 显示在标签页上;分屏时每个非灰的格子各一个点,按视觉顺序排列,
+四态圆点 —— 灰(空闲)、黄(执行中)、绿(已完成,该你了)、**橙(卡住等你输入)** —— 显示在标签页上;分屏时每个非灰的格子各一个点,按视觉顺序排列,
 最多画 4 个,所以你能直接看出是**哪一格**在等你,而不只是「里面有一格在等」。
+
+- **等输入(橙)。** 命令还在跑、安静了 ≥ 2 秒,而且光标附近十来行里出现了像在提问的文字 —— Claude Code 的「Do you want to…」「Yes, and don't ask again」「Esc to cancel」,通用的 `[y/N]` `(yes/no)` `continue?`,`Password:`,中文的「是否继续」「请输入」等(词表在 `status::looks_like_prompt`,偏保守)。以前这种情况被当成「做完了」或一直黄着;现在是橙灯并**响一声**(TUI 安静本来不响,但看见提问是明确证据),你回答后程序继续输出就回到黄。汇总优先级 橙 > 绿 > 黄 > 灰。监视线程每 0.5 秒只在命令运行中才读屏幕判断,很便宜。
+- **窗格列表侧边栏。** <kbd>⌘B</kbd>(Linux / Windows <kbd>Ctrl+Shift+B</kbd>)或状态栏的侧边栏按钮,开关状态记在 `settings.json`。左侧一列:每个标签页一个分组(序号 + 标题,点它切标签页),下面列出它的每个分屏:状态灯、目录名、右侧状态文字(执行中 / 已完成 / 等你输入),悬停看终端标题;点一行直接跳到那个分屏。多标签多分屏时找那个橙色的比扫标签栏上的小点快得多。
 
 - **精确模式。** 一旦见过 shell 集成写的命令边界,就改由它驱动:命令开始 → 黄,命令结束 → 绿,绿灯一直保持到你去看它或
   下一条命令开始。边界**不走 OSC 133**(alacritty_terminal 会丢弃不认识的 OSC),而是 zsh 钩子把 `C <n>` / `D <n>` 写进
@@ -496,6 +499,7 @@ macOS 用 ⌘ 系;Linux / Windows 上单 Ctrl 组合要留给终端(Ctrl+T / W /
 | 全选 | <kbd>⌘A</kbd> | <kbd>Ctrl+Shift+A</kbd> |
 | 复制选区 / 粘贴 | <kbd>⌘C</kbd> / <kbd>⌘V</kbd> | <kbd>Ctrl+Shift+C</kbd> / <kbd>Ctrl+V</kbd>(单独 <kbd>Ctrl+C</kbd> 仍是中断) |
 | 打开指针下的链接 | <kbd>⌘</kbd>+点击 | <kbd>Ctrl</kbd>+点击 |
+| 窗格列表侧边栏 | <kbd>⌘B</kbd> | <kbd>Ctrl+Shift+B</kbd> |
 | 🧩 加载器 | <kbd>⌘L</kbd> | <kbd>Ctrl+Shift+L</kbd> |
 | 设置 | <kbd>⌘,</kbd> | <kbd>Ctrl+Shift+,</kbd> |
 | 快捷键表 | <kbd>⌘/</kbd> | <kbd>Ctrl+Shift+/</kbd> |

@@ -394,6 +394,9 @@ impl VoiceGhosttyApp {
         if Help.consume(ctx) {
             self.show_help = !self.show_help;
         }
+        if Sidebar.consume(ctx) {
+            self.toggle_sidebar();
+        }
     }
 
     // MARK: 每帧的后台事件
@@ -616,6 +619,11 @@ impl VoiceGhosttyApp {
         ctx
     }
 
+    pub(crate) fn toggle_sidebar(&mut self) {
+        self.settings.show_sidebar = !self.settings.show_sidebar;
+        let _ = self.settings.save();
+    }
+
     // MARK: 🧩 与常用项目
 
     fn toggle_loader(&mut self) {
@@ -758,6 +766,12 @@ impl eframe::App for VoiceGhosttyApp {
             .exact_size(style::STATUS_H)
             .frame(egui::Frame::NONE.fill(p.chrome).inner_margin(egui::Margin::symmetric(8, 0)))
             .show(ui, |ui| self.status_bar(ui));
+        if self.settings.show_sidebar {
+            egui::Panel::left("panes")
+                .exact_size(style::SIDEBAR_W)
+                .frame(egui::Frame::NONE.fill(p.chrome).inner_margin(egui::Margin { left: 8, right: 6, top: 6, bottom: 6 }))
+                .show(ui, |ui| self.sidebar(ui));
+        }
 
         // 底色是分隔线的颜色:分屏的缝隙露出来就是一条细线
         let central = egui::CentralPanel::default()

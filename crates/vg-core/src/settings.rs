@@ -46,6 +46,8 @@ pub struct Settings {
     pub claude_dirs: Vec<PathBuf>,
     /// 新标签页(⌘T)和启动时第一个窗格的起始目录;None 为家目录。分屏不用它,跟随原窗格
     pub default_dir: Option<PathBuf>,
+    /// 窗格列表侧边栏是否展开(⌘B)
+    pub show_sidebar: bool,
 }
 
 impl Default for Settings {
@@ -67,6 +69,7 @@ impl Default for Settings {
             loader_groups_collapsed: BTreeSet::new(),
             claude_dirs: Vec::new(),
             default_dir: None,
+            show_sidebar: false,
         }
     }
 }

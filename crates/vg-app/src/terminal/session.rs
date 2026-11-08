@@ -174,8 +174,10 @@ impl PaneShared {
                 result.changed = st.machine.reset();
             } else {
                 let interactive_app = self.probe.as_ref().and_then(PtyProbe::is_raw_mode) == Some(true);
+                // 只在命令还在跑时才去读屏幕判断是否在提问(每 0.5 s 一次,十来行,很便宜)
+                let prompt_visible = st.machine.is_command_running() && self.screen_looks_like_prompt();
                 let (changed, chime) =
-                    st.machine.refresh(Observation { now: Instant::now(), interactive_app }, SILENCE);
+                    st.machine.refresh(Observation { now: Instant::now(), interactive_app, prompt_visible }, SILENCE);
                 result = TickResult { changed, chime };
             }
         }
@@ -205,6 +207,18 @@ impl PaneShared {
             }
         }
         result
+    }
+
+    /// 屏幕最后几行像不像一个等待回答的提示(权限确认、y/n、密码)
+    fn screen_looks_like_prompt(&self) -> bool {
+        let term = self.term.lock();
+        let rows = term.grid().screen_lines();
+        let cursor_row = term.grid().cursor.point.line.0.max(0) as usize;
+        // 看光标所在行往上十来行:提问总在光标附近,屏幕更下面是空的
+        let end = (cursor_row + 1).min(rows);
+        let start = end.saturating_sub(12);
+        let lines: Vec<String> = (start..end).map(|i| line_text(&term, Line(i as i32))).collect();
+        vg_core::status::looks_like_prompt(&lines)
     }
 
     fn flush_history(&self, finish: bool) {

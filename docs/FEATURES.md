@@ -176,11 +176,14 @@ it each frame. Siblings share the space equally; there is no drag-to-resize.
 
 Source: `crates/vg-app/src/split.rs`, `crates/vg-app/src/workspace.rs`, `crates/vg-app/src/app.rs` (`terminals`)
 
-## 8. Status lights (busy / done)
+## 8. Status lights (busy / done / waiting) and the pane list
 
-A three-state dot — grey (idle), yellow (running), green (finished, your turn) — on every tab; when split, one dot
+A four-state dot — grey (idle), yellow (running), green (finished, your turn), **orange (stuck waiting for your input)** — on every tab; when split, one dot
 per non-grey pane in visual order, up to 4, so the tab bar says *which* pane is waiting for you rather than only that
 one of them is.
+
+- **Waiting (orange).** The command is still running, has been quiet for ≥ 2 s, and the dozen lines around the cursor contain something that reads like a question — Claude Code's "Do you want to…", "Yes, and don't ask again", "Esc to cancel", generic `[y/N]` `(yes/no)` `continue?`, `Password:`, Chinese 「是否继续」「请输入」 and so on (the list lives in `status::looks_like_prompt` and errs on the quiet side). This used to show as "done" or stay yellow forever; now it is orange and **chimes** (a quiet TUI normally does not chime, but a visible question is hard evidence). Once you answer and output resumes it goes back to yellow. Aggregate priority: orange > green > yellow > grey. The monitor thread reads the screen only while a command is running, every 0.5 s — cheap.
+- **Pane list sidebar.** <kbd>⌘B</kbd> (<kbd>Ctrl+Shift+B</kbd> on Linux / Windows) or the sidebar button in the status bar; the open state is persisted in `settings.json`. A column on the left: one group per tab (number + title, click to switch tabs) listing each of its panes with status dot, folder name and a status word on the right (running / done / waiting for you); hover for the terminal title; click a row to jump straight to that pane. With many tabs and splits, finding the orange one here beats scanning the tab-bar dots.
 
 - **Precise mode.** Once a command boundary written by shell integration has been seen, it drives the light: command
   started → yellow, command finished → green, and green persists until you attend to it or the next command starts.
@@ -582,6 +585,7 @@ the terminal (Ctrl+T / W / D all mean something in a shell), so most shortcuts u
 | Select all | <kbd>⌘A</kbd> | <kbd>Ctrl+Shift+A</kbd> |
 | Copy selection / paste | <kbd>⌘C</kbd> / <kbd>⌘V</kbd> | <kbd>Ctrl+Shift+C</kbd> / <kbd>Ctrl+V</kbd> (a bare <kbd>Ctrl+C</kbd> is still interrupt) |
 | Open link under pointer | <kbd>⌘</kbd>+click | <kbd>Ctrl</kbd>+click |
+| Pane list sidebar | <kbd>⌘B</kbd> | <kbd>Ctrl+Shift+B</kbd> |
 | 🧩 Loader | <kbd>⌘L</kbd> | <kbd>Ctrl+Shift+L</kbd> |
 | Settings | <kbd>⌘,</kbd> | <kbd>Ctrl+Shift+,</kbd> |
 | Shortcut reference | <kbd>⌘/</kbd> | <kbd>Ctrl+Shift+/</kbd> |

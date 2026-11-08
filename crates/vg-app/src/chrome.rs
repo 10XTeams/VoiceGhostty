@@ -75,7 +75,7 @@ impl VoiceGhosttyApp {
                     let color = widgets::status_color_of(&p, *s);
                     let pulse = *s == SessionStatus::Busy;
                     let a = if pulse { 0.55 + 0.45 * (ui.input(|i| i.time) as f32 * 3.0).sin().abs() } else { 1.0 };
-                    kit::dot(ui, pos2(x + 3.5, cy), 3.5, alpha(color, a), *s == SessionStatus::Done);
+                    kit::dot(ui, pos2(x + 3.5, cy), 3.5, alpha(color, a), s.needs_attention());
                     x += 9.0;
                 }
                 if !lit.is_empty() {
@@ -290,6 +290,16 @@ impl VoiceGhosttyApp {
                 }
                 if kit::icon_button(
                     ui,
+                    Icon::Sidebar,
+                    self.settings.show_sidebar,
+                    format!("窗格列表  {}\n所有标签页和分屏的状态:黄 = 执行中,绿 = 已完成,橙 = 等你输入", Action::Sidebar.label()),
+                )
+                .clicked()
+                {
+                    self.toggle_sidebar();
+                }
+                if kit::icon_button(
+                    ui,
                     Icon::Blocks,
                     self.show_loader,
                     format!("加载器  {}\n把设置里添加的文件夹中的技能、Agent、插件加载进当前目录", Action::Loader.label()),
@@ -305,6 +315,92 @@ impl VoiceGhosttyApp {
                 }
             });
         });
+    }
+
+    // MARK: 窗格列表侧边栏
+
+    /// 左侧一列:每个标签页一个分组,下面列出它的分屏,各带状态灯;点一行就跳过去。
+    /// 多标签多分屏时比扫标签栏上的小点快,尤其是找那个橙色「等你输入」的
+    pub(crate) fn sidebar(&mut self, ui: &mut Ui) {
+        let p = palette(ui.ctx());
+        let full = ui.max_rect();
+        ui.painter().vline(full.max.x + 6.0 - 0.5, full.y_range().expand(6.0), Stroke::new(1.0, p.border));
+        let mut focus: Option<crate::workspace::PaneId> = None;
+        let mut select_tab: Option<usize> = None;
+        let active_pane = self.ws.active_pane_id();
+        let t = ui.input(|i| i.time) as f32;
+        let mut any_busy = false;
+
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            for (i, tab) in self.ws.tabs.iter().enumerate() {
+                let is_active_tab = i == self.ws.active_tab;
+                let title = widgets::truncate(&self.tab_title(i), 22);
+                let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
+                if resp.hovered() {
+                    ui.painter().rect_filled(row, 6.0, alpha(p.hover, 0.6));
+                }
+                let color = if is_active_tab { p.text } else { p.text2 };
+                ui.painter().text(
+                    pos2(row.min.x + 6.0, row.center().y),
+                    Align2::LEFT_CENTER,
+                    format!("{}  {title}", i + 1),
+                    crate::fonts::semibold(12.5),
+                    color,
+                );
+                if resp.clicked() {
+                    select_tab = Some(i);
+                }
+                for id in tab.panes() {
+                    let Some(pane) = self.ws.panes.get(&id) else { continue };
+                    let status = pane.session.shared.status();
+                    let is_active = Some(id) == active_pane && is_active_tab;
+                    let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
+                    if is_active {
+                        ui.painter().rect_filled(row, 6.0, p.hover);
+                    } else if resp.hovered() {
+                        ui.painter().rect_filled(row, 6.0, alpha(p.hover, 0.6));
+                    }
+                    let cy = row.center().y;
+                    let color = widgets::status_color_of(&p, status);
+                    let pulse = status == SessionStatus::Busy;
+                    any_busy |= pulse;
+                    let a = if pulse { 0.55 + 0.45 * (t * 3.0).sin().abs() } else { 1.0 };
+                    kit::dot(ui, pos2(row.min.x + 18.0, cy), 3.5, alpha(color, a), status.needs_attention());
+                    let name = pane.session.display_name();
+                    let label = if status == SessionStatus::Normal {
+                        String::new()
+                    } else {
+                        status.label().to_string()
+                    };
+                    let label_w = if label.is_empty() {
+                        0.0
+                    } else {
+                        ui.fonts_mut(|f| f.layout_no_wrap(label.clone(), style::small(), Color32::WHITE).size().x) + 8.0
+                    };
+                    let clip = Rect::from_min_max(pos2(row.min.x + 30.0, row.min.y), pos2(row.max.x - 6.0 - label_w, row.max.y));
+                    let name_color = if is_active { p.text } else { p.text2 };
+                    ui.painter().with_clip_rect(clip).text(pos2(row.min.x + 30.0, cy), Align2::LEFT_CENTER, &name, style::body(), name_color);
+                    if !label.is_empty() {
+                        ui.painter().text(pos2(row.max.x - 6.0, cy), Align2::RIGHT_CENTER, &label, style::small(), color);
+                    }
+                    let tip = format!("{}\n{}", pane.session.title, status.label());
+                    if resp.on_hover_text(tip).clicked() {
+                        focus = Some(id);
+                    }
+                }
+                ui.add_space(4.0);
+            }
+        });
+        if any_busy {
+            ui.ctx().request_repaint_after(Duration::from_millis(60));
+        }
+        if let Some(i) = select_tab {
+            self.ws.select_tab(i);
+        }
+        if let Some(id) = focus {
+            self.ws.focus_pane(id);
+        }
     }
 
     /// 当前该显示的语音状态。测试截图时可以强制指定

@@ -117,6 +117,8 @@ pub fn palette(ctx: &egui::Context) -> Palette {
 /// 标签栏、状态栏的高度
 pub const BAR_H: f32 = 40.0;
 pub const STATUS_H: f32 = 34.0;
+/// 窗格列表侧边栏宽度
+pub const SIDEBAR_W: f32 = 220.0;
 /// 终端文字离窗格边缘的距离
 pub const TERM_PAD: Vec2 = Vec2::new(10.0, 6.0);
 pub const RADIUS: u8 = 7;

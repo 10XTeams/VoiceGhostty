@@ -28,6 +28,8 @@ pub enum Icon {
     Play,
     Expand,
     Collapse,
+    /// 侧边栏:一个框,左边隔出一栏
+    Sidebar,
 }
 
 struct Pen<'a> {
@@ -106,6 +108,12 @@ pub fn paint(painter: &Painter, rect: Rect, size: f32, icon: Icon, color: Color3
                 pts.push((8.0 + r * a.cos(), 8.0 + r * a.sin()));
             }
             pen.closed(&pts);
+        }
+        Icon::Sidebar => {
+            pen.rect(2.0, 3.0, 12.0, 10.0, 1.8);
+            pen.line(&[(6.0, 3.0), (6.0, 13.0)]);
+            pen.line(&[(3.6, 5.8), (4.6, 5.8)]);
+            pen.line(&[(3.6, 8.0), (4.6, 8.0)]);
         }
         Icon::Keyboard => {
             pen.rect(1.5, 3.5, 13.0, 9.0, 1.8);

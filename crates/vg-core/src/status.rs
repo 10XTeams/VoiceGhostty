@@ -1,4 +1,5 @@
-//! 窗格状态灯(三态):灰 = 平常,黄 = 忙,绿 = 做完了、轮到你。与 Swift 版 `TerminalSession.refreshStatus` 同一套规则。
+//! 窗格状态灯(四态):灰 = 平常,黄 = 忙,绿 = 做完了、轮到你,橙 = **卡住等你输入**(权限确认、y/n、密码)。
+//! 与 Swift 版 `TerminalSession.refreshStatus` 同一套规则,橙色是 Rust 版新增的。
 //!
 //! - **精确模式**(见过 shell 集成的命令边界):命令开始 → 黄,命令结束 → 绿,绿灯保持到你来看或下一条命令。
 //!   例外:交互式全屏程序(claude、vim、less)对 shell 来说是一条很长的"命令",它的灯改由输出启发式决定,
@@ -17,15 +18,33 @@ pub enum SessionStatus {
     Normal,
     Busy,
     Done,
+    /// 命令还在跑,但安静下来了,而且屏幕末尾像是在问你(「Do you want to…」「[y/N]」「Password:」)。
+    /// 对 claude 来说就是等你批准工具调用——比「做完了」更需要你过去
+    Waiting,
 }
 
 impl SessionStatus {
-    /// 多个窗格汇总时的优先级:done > busy > normal
+    /// 多个窗格汇总时的优先级:waiting > done > busy > normal
     pub fn priority(self) -> u8 {
         match self {
             SessionStatus::Normal => 0,
             SessionStatus::Busy => 1,
             SessionStatus::Done => 2,
+            SessionStatus::Waiting => 3,
+        }
+    }
+
+    /// 灯亮着且值得你过去看(绿或橙)
+    pub fn needs_attention(self) -> bool {
+        matches!(self, SessionStatus::Done | SessionStatus::Waiting)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SessionStatus::Normal => "空闲",
+            SessionStatus::Busy => "执行中",
+            SessionStatus::Done => "已完成",
+            SessionStatus::Waiting => "等你输入",
         }
     }
 }
@@ -36,6 +55,57 @@ pub struct Observation {
     pub now: Instant,
     /// 前台是交互式全屏程序(tty 处于 raw 模式)。未知按"普通命令"处理
     pub interactive_app: bool,
+    /// 屏幕末尾看起来像一个等待回答的提示(见 [`looks_like_prompt`])
+    pub prompt_visible: bool,
+}
+
+impl Observation {
+    pub fn new(now: Instant, interactive_app: bool) -> Observation {
+        Observation { now, interactive_app, prompt_visible: false }
+    }
+}
+
+/// 屏幕最后几行是不是一个在等你回答的提示。只看最后几行非空文本(小写、去首尾空白),
+/// 命中其中一条即可。词表偏保守:宁可少亮橙灯,也别把普通输出当成提问
+pub fn looks_like_prompt(last_lines: &[String]) -> bool {
+    const NEEDLES: &[&str] = &[
+        // claude code / 各类 agent 的权限确认
+        "do you want to",
+        "yes, and don't ask again",
+        "allow once",
+        "allow always",
+        "esc to cancel",
+        "enter to confirm",
+        "press enter to",
+        // 通用 y/n
+        "(y/n)",
+        "[y/n]",
+        "[y/n]",
+        "(yes/no)",
+        "[yes/no]",
+        "y/n?",
+        "continue?",
+        "proceed?",
+        "overwrite?",
+        "are you sure",
+        // 密码
+        "password:",
+        "passphrase",
+        // 中文
+        "是否继续",
+        "是否覆盖",
+        "(是/否)",
+        "确认吗",
+        "继续吗",
+        "请输入",
+    ];
+    last_lines
+        .iter()
+        .rev()
+        .filter(|l| !l.trim().is_empty())
+        .take(8)
+        .map(|l| l.trim().to_lowercase())
+        .any(|l| NEEDLES.iter().any(|n| l.contains(n)))
 }
 
 #[derive(Debug, Default)]
@@ -77,6 +147,11 @@ impl StatusMachine {
         }
     }
 
+    /// shell 集成报告有命令在跑(没有集成时按输出活动推断:最近有过输出就算)
+    pub fn is_command_running(&self) -> bool {
+        if self.integration_seen { self.cmd_running } else { self.has_activity }
+    }
+
     // MARK: 推进
 
     /// 你正在用的那个终端保持中性(不拿自己的灯烦自己)。`cmd_running` 反映真实状态,不清。
@@ -109,6 +184,17 @@ impl StatusMachine {
                 } else {
                     self.status = SessionStatus::Busy;
                 }
+                // 命令还在跑却安静了,屏幕末尾又像在提问:它在等你。TUI 安静本来不响,
+                // 但「看见提问」是明确的证据,值得响一声
+                if self.is_quiet(obs.now, silence) && obs.prompt_visible {
+                    if self.status != SessionStatus::Waiting {
+                        chimeworthy = true;
+                    }
+                    self.status = SessionStatus::Waiting;
+                } else if self.status == SessionStatus::Waiting {
+                    // 提示消失(你答了)或又有输出:回到忙
+                    self.status = SessionStatus::Busy;
+                }
             } else if self.cmd_ended_pending {
                 self.cmd_ended_pending = false;
                 self.status = SessionStatus::Done;
@@ -124,8 +210,14 @@ impl StatusMachine {
             self.advance_by_output(obs.now, silence);
             chimeworthy = self.status == SessionStatus::Done;
         }
-        let turned_done = old != SessionStatus::Done && self.status == SessionStatus::Done;
-        (self.status != old, turned_done && chimeworthy)
+        let turned_on = !old.needs_attention() && self.status.needs_attention();
+        let turned_waiting = old != SessionStatus::Waiting && self.status == SessionStatus::Waiting;
+        (self.status != old, (turned_on || turned_waiting) && chimeworthy)
+    }
+
+    /// 自上次输出已经安静了 `silence`(从没输出过也算安静)
+    fn is_quiet(&self, now: Instant, silence: Duration) -> bool {
+        self.last_output.is_none_or(|t| now.duration_since(t) >= silence)
     }
 
     /// 最近有输出 → 忙;有过输出然后安静了 `silence` → 做完。完全没输出过就不动
@@ -267,7 +359,7 @@ mod tests {
     const SILENCE: Duration = Duration::from_secs(2);
 
     fn obs(now: Instant) -> Observation {
-        Observation { now, interactive_app: false }
+        Observation::new(now, false)
     }
 
     #[test]
@@ -301,7 +393,7 @@ mod tests {
         let t0 = Instant::now();
         m.note_command_start();
         m.note_output(t0);
-        let tui = |now| Observation { now, interactive_app: true };
+        let tui = |now| Observation::new(now, true);
         m.refresh(tui(t0), SILENCE);
         assert_eq!(m.status, SessionStatus::Busy);
         assert_eq!(m.refresh(tui(t0 + Duration::from_secs(3)), SILENCE), (true, false));
@@ -311,6 +403,47 @@ mod tests {
         m.refresh(tui(t0 + Duration::from_secs(4)), SILENCE);
         m.note_bell();
         assert_eq!(m.refresh(tui(t0 + Duration::from_secs(5)), SILENCE), (true, true));
+    }
+
+    #[test]
+    fn quiet_prompt_turns_waiting_with_chime_then_back_to_busy() {
+        let mut m = StatusMachine::default();
+        let t0 = Instant::now();
+        m.note_command_start();
+        m.note_output(t0);
+        let tui = |now, prompt| Observation { now, interactive_app: true, prompt_visible: prompt };
+        assert_eq!(m.refresh(tui(t0, true), SILENCE), (true, false)); // 刚有输出:忙,提示还不算
+        assert_eq!(m.status, SessionStatus::Busy);
+        assert_eq!(m.refresh(tui(t0 + Duration::from_secs(3), true), SILENCE), (true, true));
+        assert_eq!(m.status, SessionStatus::Waiting);
+        // 保持等待,不重复响
+        assert_eq!(m.refresh(tui(t0 + Duration::from_secs(4), true), SILENCE), (false, false));
+        // 你回答了,程序又开始输出
+        m.note_output(t0 + Duration::from_secs(5));
+        assert_eq!(m.refresh(tui(t0 + Duration::from_secs(5), false), SILENCE), (true, false));
+        assert_eq!(m.status, SessionStatus::Busy);
+        // 普通命令(非 raw)安静 + 提示 → 同样等待
+        let mut m2 = StatusMachine::default();
+        m2.note_command_start();
+        m2.note_output(t0);
+        m2.refresh(Observation { now: t0 + Duration::from_secs(3), interactive_app: false, prompt_visible: true }, SILENCE);
+        assert_eq!(m2.status, SessionStatus::Waiting);
+        assert!(SessionStatus::Waiting.priority() > SessionStatus::Done.priority());
+    }
+
+    #[test]
+    fn prompt_detection() {
+        let lines = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(looks_like_prompt(&lines(&["Edit file src/main.rs", "", "Do you want to make this edit?", " ❯ 1. Yes", "   2. Yes, and don't ask again", "   3. No"])));
+        assert!(looks_like_prompt(&lines(&["rm: remove regular file 'a.txt'? [y/N]"])));
+        assert!(looks_like_prompt(&lines(&["Password:"])));
+        assert!(looks_like_prompt(&lines(&["是否继续?(是/否)"])));
+        assert!(!looks_like_prompt(&lines(&["Compiling vg-core v0.1.0", "Finished dev profile"])));
+        assert!(!looks_like_prompt(&lines(&["$ "])));
+        // 只看最后 8 行:老早的提问不算
+        let mut old: Vec<String> = lines(&["Do you want to continue?"]);
+        old.extend((0..9).map(|i| format!("line {i}")));
+        assert!(!looks_like_prompt(&old));
     }
 
     #[test]
