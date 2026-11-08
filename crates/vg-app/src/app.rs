@@ -7,6 +7,7 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 
+use vg_core::nl2command::TerminalContext;
 use vg_core::{Config, Settings, VoiceEngineKind};
 
 use crate::loader_panel::LoaderPanel;
@@ -36,6 +37,8 @@ pub(crate) struct Status {
 
 /// 分屏之间的间隙(露出底下的分隔线颜色)
 const SPLIT_GAP: f32 = 1.0;
+/// 自然语言模式带给 LLM 的屏幕行数
+const SCREEN_CONTEXT_LINES: usize = 40;
 const FONT_MIN: f32 = 8.0;
 const FONT_MAX: f32 = 48.0;
 
@@ -394,14 +397,22 @@ impl VoiceGhosttyApp {
                 Err(e) => self.set_status(e, true),
             },
             PttAction::StopRecording => {
-                let cwd = self
-                    .active_session()
-                    .and_then(|s| s.current_directory())
-                    .map(|p| p.to_string_lossy().into_owned());
-                self.pipeline.stop(&self.config, self.mode, cwd);
+                let context = self.terminal_context();
+                self.pipeline.stop(&self.config, self.mode, context);
             }
             _ => {}
         }
+    }
+
+    /// 活动窗格的终端现场:工作目录,以及(开着 `llm-screen-context` 时)屏幕尾部与上一条命令
+    fn terminal_context(&self) -> TerminalContext {
+        let Some(session) = self.active_session() else { return TerminalContext::default() };
+        let mut ctx = TerminalContext::cwd(session.current_directory().map(|p| p.to_string_lossy().into_owned()));
+        if self.config.llm_screen_context {
+            ctx.screen_tail = Some(session.screen_tail(SCREEN_CONTEXT_LINES));
+            ctx.last_command = session.shared.last_command();
+        }
+        ctx
     }
 
     // MARK: 🧩 与常用项目

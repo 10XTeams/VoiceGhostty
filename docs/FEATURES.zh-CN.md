@@ -73,6 +73,7 @@
 | 本地 Ollama | 没有 Claude Key 时的跨平台离线兜底(取代旧版的 Apple 端侧模型):同一个 `/api/chat` + JSON Schema 约束,60 s 超时,输出用 `parse_loose` 容错解析 —— 从回复里取最外层 `{…}`,找不到 JSON 就把整段当命令;`command` 为空则报错并把 `explanation` 当原因。服务不可用时提示去检查 Ollama 和模型。 | `crates/vg-core/src/ollama.rs`、`crates/vg-core/src/nl2command.rs` |
 | 后端选择 | `llm-provider = auto`(有 Key 走 Claude,否则 Ollama)/ `claude`(没 Key 直接报错)/ `ollama`。API Key 优先读配置文件,其次 `$ANTHROPIC_API_KEY` —— 从 Finder / 开始菜单启动的 App 看不到 shell 环境变量,所以配置文件是主路径。 | `crates/vg-core/src/nl2command.rs` |
 | 上下文 | 系统提示词里写明操作系统(macOS / Linux / Windows)、用户的 shell(`$SHELL` 末段;Windows 为 PowerShell)和当前活动分屏的工作目录,提升命令准确率;要求危险操作在解释里标注,做不到就把 `command` 留空并说明原因。 | `crates/vg-core/src/nl2command.rs`(`instructions`) |
+| 终端现场 | `llm-screen-context`(默认开)时还带上:**屏幕可见区域最后 40 行**(去掉行尾空白和末尾空行,最多 3000 字符,从末尾往前截),以及 zsh 集成看到的**上一条命令原文与退出码**(状态文件 `C <n>` 的下一行是命令,`D <n> <退出码>`)。这样「刚才为什么报错」「把上面那个文件删掉」「重跑一遍」有所指。屏幕内容会随请求发给 Claude API 或本机 Ollama,介意就关掉,此时只给工作目录。 | `crates/vg-core/src/nl2command.rs`(`TerminalContext`)、`crates/vg-app/src/terminal/session.rs`(`screen_tail`、`last_command`)、`crates/vg-core/src/status.rs`(`StateFile`、`LastCommand`) |
 
 ## 4. 安全模型
 
@@ -186,8 +187,8 @@
 - **输入行着色** —— `line-pre-redraw` ZLE 钩子给你正在敲的命令行整行上色。每次重绘都用内建 `read` 重读
   `~/.config/voiceghostty/input-color`(不起子进程),所以在设置里改颜色,所有已打开标签页立刻生效;文件读不到时用默认
   `#5CC8FF`。历史输出和 `claude` 这类全屏 TUI 完全不受影响。
-- **命令边界** —— `preexec` / `precmd` 钩子把 `C <n>` / `D <n>` 用 zsh 内建重定向(无子进程)写进 `$VG_STATE_FILE`,驱动
-  精确状态灯。同时仍然发出 **OSC 133** `C` / `D` 标记和 **OSC 7** 当前目录 —— VoiceGhostty 自己不用,但换到别的终端这份
+- **命令边界** —— `preexec` / `precmd` 钩子把 `C <n>`(下一行跟命令原文)/ `D <n> <退出码>` 用 zsh 内建重定向(无子进程)写进 `$VG_STATE_FILE`,驱动
+  精确状态灯;命令原文与退出码还喂给自然语言模式的 LLM(见第 3 节「终端现场」)。同时仍然发出 **OSC 133** `C` / `D` 标记和 **OSC 7** 当前目录 —— VoiceGhostty 自己不用,但换到别的终端这份
   `.zshrc` 也能用。
 - 导出 **`COLORTERM=truecolor`**。
 - 状态文件在 `~/.config/voiceghostty/run/<App 进程号>-<窗格号>.state`,窗格关闭时删除;App 启动时清掉进程号已不存在的
@@ -391,6 +392,7 @@ GUI 设置优先;没在 GUI 里设过的(`null`)回退配置文件。配置文�
 | `llm-model` | `claude-opus-5-5` | Claude 模型 ID |
 | `llm-api-key` | — | 不填则读 `$ANTHROPIC_API_KEY` |
 | `correction` | `on` | 填 `off` 关闭自然语言模式的矫正(听写模式本来就逐字直出) |
+| `llm-screen-context` | `on` | 自然语言模式把屏幕最后 40 行和上一条命令(含退出码)一起给 LLM;`off` 只给工作目录 |
 | `llm-local-model` | `qwen3:1.7b` | Ollama 模型:矫正,以及没有 Claude Key 时生成命令 |
 | `llm-local-url` | `http://127.0.0.1:11434` | Ollama 服务地址 |
 | `skill-library-dir` | `~/.claude/skills` | 加载器来源目录(支持 `~`)。多个目录:用英文逗号分隔,或重复写这个键(第一次出现替换默认值,之后追加)—— 顺序即 🧩 面板的分组顺序和重名优先级;设置面板的列表优先 |

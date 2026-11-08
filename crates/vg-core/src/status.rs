@@ -153,13 +153,68 @@ pub enum ShellMark {
 
 impl ShellMark {
     pub fn parse(text: &str) -> Option<ShellMark> {
-        let mut parts = text.split_whitespace();
+        StateFile::parse(text).map(|f| f.mark)
+    }
+}
+
+/// 状态文件的完整内容。首行 `C <n>` 后面跟着命令原文(可能多行);`D <n> <exit>` 带上一条命令的退出码
+/// (老版本的钩子没有退出码,也照样解析)。命令原文与退出码喂给自然语言模式的 LLM,让「刚才为什么报错」
+/// 这类话有所指。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StateFile {
+    pub mark: ShellMark,
+    pub exit_code: Option<i32>,
+    pub command: Option<String>,
+}
+
+impl StateFile {
+    pub fn parse(text: &str) -> Option<StateFile> {
+        let (head, rest) = match text.split_once('\n') {
+            Some((h, r)) => (h, Some(r)),
+            None => (text, None),
+        };
+        let mut parts = head.split_whitespace();
         let kind = parts.next()?;
         let n = parts.next()?.parse().ok()?;
+        let third = parts.next().and_then(|s| s.parse::<i32>().ok());
         match kind {
-            "C" => Some(ShellMark::Started(n)),
-            "D" => Some(ShellMark::Prompt(n)),
+            "C" => Some(StateFile {
+                mark: ShellMark::Started(n),
+                exit_code: None,
+                command: rest.map(str::trim).filter(|c| !c.is_empty()).map(str::to_string),
+            }),
+            "D" => Some(StateFile { mark: ShellMark::Prompt(n), exit_code: third, command: None }),
             _ => None,
+        }
+    }
+}
+
+/// 最近一条经 shell 集成看到的命令:原文与(回到提示符后)它的退出码
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LastCommand {
+    pub seq: u64,
+    pub text: String,
+    pub exit_code: Option<i32>,
+}
+
+impl LastCommand {
+    /// 把状态文件的一次读取并进来:新命令开始 → 换成它;回到提示符 → 补上退出码
+    pub fn absorb(slot: &mut Option<LastCommand>, file: &StateFile) {
+        match file.mark {
+            ShellMark::Started(n) => {
+                if let Some(text) = &file.command {
+                    if slot.as_ref().is_none_or(|c| c.seq != n) {
+                        *slot = Some(LastCommand { seq: n, text: text.clone(), exit_code: None });
+                    }
+                }
+            }
+            ShellMark::Prompt(n) => {
+                if let Some(c) = slot.as_mut() {
+                    if c.seq == n && c.exit_code.is_none() {
+                        c.exit_code = file.exit_code;
+                    }
+                }
+            }
         }
     }
 }
@@ -272,8 +327,30 @@ mod tests {
     fn parses_marks() {
         assert_eq!(ShellMark::parse("C 3\n"), Some(ShellMark::Started(3)));
         assert_eq!(ShellMark::parse("D 0"), Some(ShellMark::Prompt(0)));
+        assert_eq!(ShellMark::parse("D 2 127"), Some(ShellMark::Prompt(2)));
         assert_eq!(ShellMark::parse("X 1"), None);
         assert_eq!(ShellMark::parse(""), None);
+    }
+
+    #[test]
+    fn parses_state_file_with_command_and_exit_code() {
+        let c = StateFile::parse("C 3\ngit push -u origin main\n").unwrap();
+        assert_eq!(c.mark, ShellMark::Started(3));
+        assert_eq!(c.command.as_deref(), Some("git push -u origin main"));
+        assert_eq!(c.exit_code, None);
+        let d = StateFile::parse("D 3 1\n").unwrap();
+        assert_eq!(d.mark, ShellMark::Prompt(3));
+        assert_eq!(d.exit_code, Some(1));
+        assert_eq!(StateFile::parse("D 3").unwrap().exit_code, None);
+
+        let mut slot = None;
+        LastCommand::absorb(&mut slot, &c);
+        assert_eq!(slot.as_ref().unwrap().text, "git push -u origin main");
+        LastCommand::absorb(&mut slot, &d);
+        assert_eq!(slot.as_ref().unwrap().exit_code, Some(1));
+        // 序号对不上的退出码不乱认
+        LastCommand::absorb(&mut slot, &StateFile::parse("D 9 0").unwrap());
+        assert_eq!(slot.as_ref().unwrap().exit_code, Some(1));
     }
 
     #[test]

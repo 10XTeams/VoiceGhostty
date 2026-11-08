@@ -4,9 +4,9 @@
 //! `~/.z*`,再追加 VoiceGhostty 的集成。放在 `.zshrc` 里执行,意味着**首个提示符绘制前**就已生效,不闪。
 //! - **输入高亮**:`line-pre-redraw` 钩子给正在输入的命令行上色,每次重绘用内建 `read` 读颜色文件(无子进程),
 //!   所以设置里改色立即对所有标签页生效
-//! - **命令边界**:`preexec`/`precmd` 把 `C <n>` / `D <n>` 写进 `$VG_STATE_FILE`(zsh 内建重定向,无子进程),
-//!   App 轮询它驱动精确的状态灯。alacritty_terminal 会丢弃不认识的 OSC,所以没法像 Swift 版那样走 OSC 133;
-//!   OSC 133 仍照发,换别的终端也能用
+//! - **命令边界**:`preexec`/`precmd` 把 `C <n>`(下一行跟命令原文)/ `D <n> <退出码>` 写进 `$VG_STATE_FILE`
+//!   (zsh 内建重定向,无子进程),App 轮询它驱动精确的状态灯,命令原文与退出码还喂给自然语言模式的 LLM。
+//!   alacritty_terminal 会丢弃不认识的 OSC,所以没法像 Swift 版那样走 OSC 133;OSC 133 仍照发,换别的终端也能用
 //!
 //! 包装目录用 `shell-rs/` 而不是 Swift 版的 `shell/`:两个 App 每次开窗格都会重写自己的版本,共用会互相覆盖。
 
@@ -86,8 +86,8 @@ autoload -Uz add-zsh-hook add-zle-hook-widget
 _vg_ic(){{ local c; IFS= read -r c < '{color}' 2>/dev/null; region_highlight=("0 ${{#BUFFER}} fg=${{c:-#5CC8FF}}") }}
 add-zle-hook-widget line-pre-redraw _vg_ic
 typeset -gi _vg_n=0
-_vg_pe(){{ print -n '\e]133;C\e\\'; (( ++_vg_n )); [[ -n $VG_STATE_FILE ]] && print -r -- "C $_vg_n" >| $VG_STATE_FILE }}
-_vg_pc(){{ print -n '\e]133;D\e\\'; print -n "\e]7;file://$HOST$PWD\e\\"; [[ -n $VG_STATE_FILE ]] && print -r -- "D $_vg_n" >| $VG_STATE_FILE }}
+_vg_pe(){{ print -n '\e]133;C\e\\'; (( ++_vg_n )); [[ -n $VG_STATE_FILE ]] && print -r -- "C $_vg_n"$'\n'"$1" >| $VG_STATE_FILE }}
+_vg_pc(){{ local ec=$?; print -n '\e]133;D\e\\'; print -n "\e]7;file://$HOST$PWD\e\\"; [[ -n $VG_STATE_FILE ]] && print -r -- "D $_vg_n $ec" >| $VG_STATE_FILE }}
 add-zsh-hook preexec _vg_pe
 add-zsh-hook precmd _vg_pc
 "#
@@ -131,8 +131,9 @@ mod tests {
         assert!(zshrc.contains("read -r c < '/x/input-color'"));
         assert!(zshrc.contains("${#BUFFER}"));
         assert!(zshrc.contains(r"'\e]133;C\e\\'"));
-        assert!(zshrc.contains(r#"print -r -- "C $_vg_n" >| $VG_STATE_FILE"#));
-        assert!(zshrc.contains(r#"print -r -- "D $_vg_n" >| $VG_STATE_FILE"#));
+        assert!(zshrc.contains(r#"print -r -- "C $_vg_n"$'\n'"$1" >| $VG_STATE_FILE"#));
+        assert!(zshrc.contains(r#"_vg_pc(){ local ec=$?;"#));
+        assert!(zshrc.contains(r#"print -r -- "D $_vg_n $ec" >| $VG_STATE_FILE"#));
         assert!(files[0].1.contains("ZDOTDIR='/x/shell'"));
     }
 }

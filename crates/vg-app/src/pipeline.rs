@@ -7,6 +7,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use vg_core::nl2command::TerminalContext;
 use vg_core::{nl2command, ollama, Config};
 use vg_voice::{LiveAudio, Recorder, TranscribeOptions};
 
@@ -102,8 +103,8 @@ impl Pipeline {
         Ok(())
     }
 
-    /// 松开:停止录音,后台识别。`cwd` 喂给命令生成。
-    pub fn stop(&mut self, config: &Config, mode: VoiceMode, cwd: Option<String>) {
+    /// 松开:停止录音,后台识别。`context` 是活动窗格的终端现场,喂给命令生成。
+    pub fn stop(&mut self, config: &Config, mode: VoiceMode, context: TerminalContext) {
         let Some(recorder) = self.recorder.take() else { return };
         if let Some(stop) = self.live_stop.take() {
             stop.store(true, Ordering::Relaxed);
@@ -112,7 +113,7 @@ impl Pipeline {
         let tx = self.tx.clone();
         let config = config.clone();
         std::thread::spawn(move || {
-            let event = run(recorder, &config, mode, cwd.as_deref(), &tx);
+            let event = run(recorder, &config, mode, &context, &tx);
             let _ = tx.send(event);
         });
     }
@@ -122,7 +123,7 @@ fn run(
     recorder: Recorder,
     config: &Config,
     mode: VoiceMode,
-    cwd: Option<&str>,
+    context: &TerminalContext,
     tx: &Sender<PipelineEvent>,
 ) -> PipelineEvent {
     let clip = match recorder.stop() {
@@ -156,7 +157,7 @@ fn run(
                 text.clone()
             };
             let _ = tx.send(PipelineEvent::Stage("生成命令…"));
-            match nl2command::translate(&intent, cwd, config) {
+            match nl2command::translate(&intent, context, config) {
                 Ok(t) => PipelineEvent::Insert {
                     text: nl2command::strip_newlines(&t.command),
                     explanation: Some(format!("「{intent}」→ {}", t.explanation)),

@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg};
-use alacritty_terminal::grid::Scroll;
+use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::index::Line;
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::term::{Config as TermConfig, Term};
@@ -20,10 +21,10 @@ use alacritty_terminal::tty;
 use alacritty_terminal::vte::ansi::Rgb as AnsiRgb;
 
 use vg_core::claude_usage::{ContextUsage, UsageWatcher};
-use vg_core::status::{Observation, ShellMark, ShellMarkTracker};
+use vg_core::status::{LastCommand, Observation, ShellMarkTracker, StateFile};
 use vg_core::{paths, shell, SessionStatus, Settings, StatusMachine, Theme};
 
-use super::history::SessionLogger;
+use super::history::{line_text, SessionLogger};
 use super::proc::{self, PtyProbe};
 
 /// PTY IO 线程写、监视线程读的原子信号(不加锁,值幂等,竞争无害)
@@ -97,6 +98,8 @@ struct StatusState {
     machine: StatusMachine,
     marks: ShellMarkTracker,
     seen_output_seq: u64,
+    /// shell 集成报告的最近一条命令及其退出码(喂给自然语言模式)
+    last_command: Option<LastCommand>,
 }
 
 /// 状态机"安静多久算做完"
@@ -142,15 +145,21 @@ impl PaneShared {
         self.cwd.lock().unwrap().clone()
     }
 
+    /// 最近一条经 shell 集成看到的命令(没有 zsh 集成时为 None)
+    pub fn last_command(&self) -> Option<LastCommand> {
+        self.status.lock().unwrap().last_command.clone()
+    }
+
     /// 监视线程每 0.5 秒调一次
     pub fn tick(&self, n: u64) -> TickResult {
         let mut result = TickResult::default();
         {
             let mut guard = self.status.lock().unwrap();
             let st = &mut *guard;
-            let mark = std::fs::read_to_string(&self.state_file).ok().and_then(|s| ShellMark::parse(&s));
-            if let Some(mark) = mark {
-                st.marks.apply(mark, &mut st.machine);
+            let file = std::fs::read_to_string(&self.state_file).ok().and_then(|s| StateFile::parse(&s));
+            if let Some(file) = file {
+                st.marks.apply(file.mark, &mut st.machine);
+                LastCommand::absorb(&mut st.last_command, &file);
             }
             let seq = self.signals.output_seq.load(Ordering::Relaxed);
             if seq != st.seen_output_seq {
@@ -347,6 +356,19 @@ impl TerminalSession {
     /// shell 当前所在目录(喂给命令生成)。不依赖 shell 集成,直接问操作系统。
     pub fn current_directory(&self) -> Option<PathBuf> {
         self.shared.shell_pid.and_then(proc::process_cwd)
+    }
+
+    /// 屏幕可见区域最后 `max_lines` 行非空内容(不含滚出去的历史),喂给自然语言模式当现场。
+    /// 不管当前滚到哪,看的都是实时屏幕;末尾的空行去掉。
+    pub fn screen_tail(&self, max_lines: usize) -> String {
+        let term = self.term.lock();
+        let rows = term.grid().screen_lines();
+        let mut lines: Vec<String> = (0..rows).map(|i| line_text(&term, Line(i as i32))).collect();
+        while lines.last().is_some_and(|l| l.is_empty()) {
+            lines.pop();
+        }
+        let start = lines.len().saturating_sub(max_lines);
+        lines[start..].join("\n")
     }
 
     /// 标签页显示名:当前目录的文件夹名(家目录显示 ~),拿不到时用终端标题

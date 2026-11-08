@@ -78,6 +78,7 @@ The transcript goes through a **local correction pass** before reaching the LLM 
 | Local Ollama | The cross-platform, offline fallback when there is no Claude key (replacing the old app's Apple on-device model): the same `/api/chat` with a JSON-schema constraint, 60 s timeout, and the reply parsed leniently with `parse_loose` — the outermost `{…}` is extracted, and if no JSON is found the whole reply is treated as the command; an empty `command` is an error, with the `explanation` as the reason. If the service is unreachable the message points at Ollama and the model. | `crates/vg-core/src/ollama.rs`, `crates/vg-core/src/nl2command.rs` |
 | Selection | `llm-provider = auto` (Claude when a key exists, else Ollama) / `claude` (an error without a key) / `ollama`. The API key resolves from the config file first, then `$ANTHROPIC_API_KEY` — an app launched from Finder or the Start menu does not see shell environment variables, so the config file is the primary path. | `crates/vg-core/src/nl2command.rs` |
 | Context | The system prompt names the operating system (macOS / Linux / Windows), the user's shell (last segment of `$SHELL`; PowerShell on Windows) and the active pane's working directory to improve command accuracy; it asks that dangerous operations be flagged in the explanation, and that `command` be left empty with a reason when the request cannot be done safely. | `crates/vg-core/src/nl2command.rs` (`instructions`) |
+| Terminal scene | With `llm-screen-context` (on by default) the prompt also carries the **last 40 visible screen lines** (trailing whitespace and empty lines dropped, capped at 3000 characters from the end) and the **last command and its exit code** as seen by the zsh integration (the state file's `C <n>` is followed by the command text; `D <n> <exit>`). That is what makes "why did that fail", "delete the file above" or "run it again" refer to something. Screen text is sent along with the request to the Claude API or local Ollama; turn it off and only the working directory goes. | `crates/vg-core/src/nl2command.rs` (`TerminalContext`), `crates/vg-app/src/terminal/session.rs` (`screen_tail`, `last_command`), `crates/vg-core/src/status.rs` (`StateFile`, `LastCommand`) |
 
 ## 4. Safety model
 
@@ -216,8 +217,8 @@ overwrites the one the old Swift app wrote.)
   `~/.config/voiceghostty/input-color` on every redraw using the `read` builtin (no subprocess), so changing
   the colour in Settings applies live in every open tab; when the file is unreadable the default `#5CC8FF` is used.
   Past output and full-screen TUIs like `claude` are untouched.
-- **Command boundaries** — `preexec` / `precmd` hooks write `C <n>` / `D <n>` into `$VG_STATE_FILE` with a zsh builtin
-  redirect (no subprocess), driving the precise status lights. They still emit **OSC 133** `C` / `D` markers and an
+- **Command boundaries** — `preexec` / `precmd` hooks write `C <n>` (followed by the command text on the next line) / `D <n> <exit code>` into `$VG_STATE_FILE` with a zsh builtin
+  redirect (no subprocess), driving the precise status lights; the command text and exit code also feed the natural-language LLM (see § 3 "Terminal scene"). They still emit **OSC 133** `C` / `D` markers and an
   **OSC 7** working-directory report — VoiceGhostty itself does not use them, but the same `.zshrc` keeps working in
   other terminals.
 - **`COLORTERM=truecolor`** is exported.
@@ -468,6 +469,7 @@ false, anything else is true. **23 keys:**
 | `llm-model` | `claude-opus-5-5` | Claude model ID |
 | `llm-api-key` | — | Falls back to `$ANTHROPIC_API_KEY` |
 | `correction` | `on` | `off` disables the natural-language correction pass (dictation is always verbatim) |
+| `llm-screen-context` | `on` | Natural-language mode sends the last 40 screen lines and the last command (with exit code) to the LLM; `off` sends only the working directory |
 | `llm-local-model` | `qwen3:1.7b` | Ollama model, for correction and for command generation without a Claude key |
 | `llm-local-url` | `http://127.0.0.1:11434` | Ollama endpoint |
 | `skill-library-dir` | `~/.claude/skills` | Loader sources (tilde expanded). Several folders: comma-separate them, or repeat the key (the first occurrence replaces the default, later ones append) — the order is the 🧩 panel's group order and the priority for duplicate names; the Settings list overrides this |

@@ -181,6 +181,9 @@ pub struct Config {
 
     /// 转写纠错(仅自然语言模式;听写模式始终原样)
     pub correction_enabled: bool,
+    /// 自然语言模式把屏幕最后几十行和上一条命令(含退出码)一起喂给 LLM,
+    /// 这样「刚才为什么报错」「把上面那个文件删掉」有所指。关掉则只给工作目录
+    pub llm_screen_context: bool,
     pub llm_local_model: String,
     pub llm_local_url: String,
 
@@ -203,6 +206,7 @@ impl Default for Config {
             llm_model: claude::DEFAULT_MODEL.into(),
             llm_api_key: String::new(),
             correction_enabled: true,
+            llm_screen_context: true,
             llm_local_model: ollama::DEFAULT_MODEL.into(),
             llm_local_url: ollama::DEFAULT_BASE_URL.into(),
             skill_library_dirs: vec![default_skill_library_dir()],
@@ -267,6 +271,7 @@ impl Config {
                 "llm-local-model" => config.llm_local_model = value.into(),
                 "llm-local-url" => config.llm_local_url = value.into(),
                 "correction" => config.correction_enabled = parse_bool(value),
+                "llm-screen-context" => config.llm_screen_context = parse_bool(value),
                 "skill-library-dir" => {
                     let dirs: Vec<PathBuf> = value
                         .split(',')

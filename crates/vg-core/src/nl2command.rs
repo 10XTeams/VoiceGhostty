@@ -9,6 +9,7 @@
 use serde::Deserialize;
 
 use crate::config::{Config, LlmProvider};
+use crate::status::LastCommand;
 use crate::{claude, ollama};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,13 +26,32 @@ pub enum NlError {
     Message(String),
 }
 
-/// `current_directory`:当前工作目录,喂给模型提高命令准确度
+/// 喂给模型的终端现场:工作目录、屏幕上最后几十行、上一条命令及其退出码。
+/// 都是可选的——拿不到就不写,模型照样能工作,只是「上面那个」「刚才的报错」没了所指。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TerminalContext {
+    pub current_directory: Option<String>,
+    /// 屏幕可见区域最后几行(已去掉行尾空白与末尾空行)
+    pub screen_tail: Option<String>,
+    pub last_command: Option<LastCommand>,
+}
+
+/// 屏幕内容最多带这么多字符(从末尾往前数),免得把小模型的上下文塞爆
+const SCREEN_TAIL_MAX_CHARS: usize = 3000;
+
+impl TerminalContext {
+    pub fn cwd(dir: Option<String>) -> TerminalContext {
+        TerminalContext { current_directory: dir, ..TerminalContext::default() }
+    }
+}
+
+/// `context`:终端现场,喂给模型提高命令准确度
 pub fn translate(
     natural_language: &str,
-    current_directory: Option<&str>,
+    context: &TerminalContext,
     config: &Config,
 ) -> Result<Translation, NlError> {
-    let system = instructions(current_directory, &shell_name());
+    let system = instructions(context, &shell_name());
     let api_key = resolve_api_key(config);
 
     match (config.llm_provider, api_key) {
@@ -81,7 +101,7 @@ fn os_name() -> &'static str {
 }
 
 /// 两条路径共用的系统提示词(Claude 用结构化输出由 API 保证格式;本地模型靠 format 约束 + parse_loose 容错)
-pub fn instructions(current_directory: Option<&str>, shell: &str) -> String {
+pub fn instructions(context: &TerminalContext, shell: &str) -> String {
     let mut s = format!(
         "You are a command assistant for the {os} terminal ({shell}). Turn the user's natural-language intent into [one] directly executable shell command.\n\
          Output only a single JSON object, no markdown, no code block, no extra text, in this format:\n\
@@ -89,11 +109,39 @@ pub fn instructions(current_directory: Option<&str>, shell: &str) -> String {
          When it cannot be done safely, leave command as an empty string and explain why in explanation.",
         os = os_name(),
     );
-    if let Some(cwd) = current_directory.filter(|c| !c.is_empty()) {
+    if let Some(cwd) = context.current_directory.as_deref().filter(|c| !c.is_empty()) {
         s.push_str("\nCurrent working directory: ");
         s.push_str(cwd);
     }
+    if let Some(last) = &context.last_command {
+        s.push_str("\nLast command run: ");
+        s.push_str(&last.text);
+        match last.exit_code {
+            Some(0) => s.push_str(" (exit code 0, succeeded)"),
+            Some(code) => s.push_str(&format!(" (exit code {code}, FAILED)")),
+            None => s.push_str(" (still running or exit code unknown)"),
+        }
+    }
+    if let Some(screen) = context.screen_tail.as_deref().filter(|t| !t.trim().is_empty()) {
+        s.push_str(
+            "\nThe last lines currently visible on the terminal screen are below (oldest first; may include prompts and the user's own typing). \
+             Use them to resolve references like \"that file\", \"the error above\" or \"the previous command\":\n<screen>\n",
+        );
+        s.push_str(tail_chars(screen, SCREEN_TAIL_MAX_CHARS));
+        s.push_str("\n</screen>");
+    }
     s
+}
+
+/// 字符串末尾最多 `max` 个字符(按字符而不是字节切,不会切坏中文)
+fn tail_chars(s: &str, max: usize) -> &str {
+    let count = s.chars().count();
+    if count <= max {
+        return s;
+    }
+    let skip = count - max;
+    let (idx, _) = s.char_indices().nth(skip).unwrap_or((s.len(), ' '));
+    &s[idx..]
 }
 
 /// 从模型输出里抠出 JSON 解析;找不到就把整段当命令(容错)。
@@ -149,10 +197,33 @@ mod tests {
 
     #[test]
     fn instructions_include_cwd() {
-        let s = instructions(Some("/tmp"), "zsh");
+        let s = instructions(&TerminalContext::cwd(Some("/tmp".into())), "zsh");
         assert!(s.contains("(zsh)"));
         assert!(s.ends_with("Current working directory: /tmp"));
-        assert!(!instructions(None, "zsh").contains("Current working directory"));
+        assert!(!instructions(&TerminalContext::default(), "zsh").contains("Current working directory"));
+    }
+
+    #[test]
+    fn instructions_include_screen_and_last_command() {
+        let ctx = TerminalContext {
+            current_directory: Some("/p".into()),
+            screen_tail: Some("$ cargo build\nerror[E0425]: cannot find value `x`".into()),
+            last_command: Some(LastCommand { seq: 7, text: "cargo build".into(), exit_code: Some(101) }),
+        };
+        let s = instructions(&ctx, "zsh");
+        assert!(s.contains("Last command run: cargo build (exit code 101, FAILED)"));
+        assert!(s.contains("<screen>\n$ cargo build\nerror[E0425]"));
+        assert!(s.ends_with("</screen>"));
+        // 空屏幕不写
+        let empty = TerminalContext { screen_tail: Some("  \n".into()), ..TerminalContext::default() };
+        assert!(!instructions(&empty, "zsh").contains("<screen>"));
+    }
+
+    #[test]
+    fn tail_chars_keeps_the_end_and_char_boundaries() {
+        assert_eq!(tail_chars("abcdef", 3), "def");
+        assert_eq!(tail_chars("中文字符串", 2), "符串");
+        assert_eq!(tail_chars("ab", 5), "ab");
     }
 
     #[test]
@@ -169,7 +240,7 @@ mod tests {
         };
         // 测试环境可能设置了 ANTHROPIC_API_KEY;只在未设置时断言
         if std::env::var("ANTHROPIC_API_KEY").map_or(true, |k| k.is_empty()) {
-            assert!(translate("list files", None, &config).is_err());
+            assert!(translate("list files", &TerminalContext::default(), &config).is_err());
         }
     }
 }
