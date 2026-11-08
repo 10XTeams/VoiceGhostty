@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use vg_core::nl2command::TerminalContext;
-use vg_core::{nl2command, ollama, Config};
+use vg_core::{nl2command, ollama, rewrite, Config};
 use vg_voice::{LiveAudio, Recorder, TranscribeOptions};
 
 /// 实时字幕:两次识别之间至少隔这么久
@@ -141,12 +141,14 @@ fn run(
         Ok(None) => return PipelineEvent::Nothing,
         Err(e) => return PipelineEvent::Error(format!("{} 识别失败:{e:#}", engine.name())),
     };
+    // 个人词典先于一切:同音别字纠正过再往下走
+    let text = rewrite::apply_dictionary(&text, &config.voice.replacements);
 
     match mode {
-        VoiceMode::Dictation => PipelineEvent::Insert {
-            text: nl2command::strip_newlines(&text),
-            explanation: None,
-        },
+        VoiceMode::Dictation => {
+            let text = if config.voice.spoken_symbols { rewrite::spoken_symbols(&text) } else { text };
+            PipelineEvent::Insert { text: nl2command::strip_newlines(&text), explanation: None }
+        }
         VoiceMode::NaturalLanguage => {
             // 纠错只能锦上添花:服务没开/输出异常一律用原文
             let intent = if config.correction_enabled {

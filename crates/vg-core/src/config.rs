@@ -93,6 +93,10 @@ pub struct VoiceConfig {
     pub hold_ms: u64,
     /// 录音期间边说边出实时字幕(只对本机引擎生效:进程内 whisper、本机 HTTP 服务)
     pub live_caption: bool,
+    /// 听写模式把口述的符号名换成符号(「点」→ `.`、「横杠」→ `-`,见 rewrite 模块)
+    pub spoken_symbols: bool,
+    /// 个人词典:`(听成的, 想要的)`,两种模式都先替换
+    pub replacements: Vec<(String, String)>,
 }
 
 impl Default for VoiceConfig {
@@ -109,6 +113,8 @@ impl Default for VoiceConfig {
             device: String::new(),
             hold_ms: 250,
             live_caption: true,
+            spoken_symbols: true,
+            replacements: Vec::new(),
         }
     }
 }
@@ -303,6 +309,12 @@ impl Config {
                     }
                 }
                 "voice-live-caption" => v.live_caption = parse_bool(value),
+                "voice-spoken-symbols" => v.spoken_symbols = parse_bool(value),
+                "voice-replace" => {
+                    if let Some(rule) = crate::rewrite::parse_rule(value) {
+                        v.replacements.push(rule);
+                    }
+                }
                 _ => {} // 未知 key 忽略
             }
         }
@@ -338,6 +350,16 @@ mod tests {
         assert_eq!(c.llm_provider, LlmProvider::Ollama);
         assert!(!c.correction_enabled);
         assert_eq!(c.scrollback, 10_000);
+    }
+
+    #[test]
+    fn voice_replace_rules_accumulate() {
+        let c = Config::parse("voice-replace = 卡狗 => cargo\nvoice-replace = 鬼 ghostty -> Ghostty\nvoice-replace = junk\nvoice-spoken-symbols = off\n");
+        assert_eq!(
+            c.voice.replacements,
+            vec![("卡狗".to_string(), "cargo".to_string()), ("鬼 ghostty".to_string(), "Ghostty".to_string())]
+        );
+        assert!(!c.voice.spoken_symbols);
     }
 
     #[test]

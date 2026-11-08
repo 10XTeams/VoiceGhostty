@@ -7,6 +7,7 @@ pub mod loader;
 pub mod nl2command;
 pub mod ollama;
 pub mod paths;
+pub mod rewrite;
 pub mod settings;
 pub mod shell;
 pub mod status;

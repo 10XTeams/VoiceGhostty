@@ -55,7 +55,14 @@ Switched with the segmented control at the left of the status bar, or <kbd>⌘�
 
 ### Dictation
 
-Recognized text lands at the cursor **verbatim**, with no rewriting. Dictation is mostly command fragments, paths and filenames, where a small model is likelier to damage the text than improve it — so this path stays word-for-word on purpose. The only processing is replacing newlines with spaces before insertion (see § 4, Safety model). The status bar reads "typed: …".
+Recognized text lands at the cursor **without any model rewriting**. Dictation is mostly command fragments, paths and filenames, where a small model is likelier to damage the text than improve it — so this path deliberately skips the LLM. Only two deterministic text passes apply, both in `vg-core/src/rewrite.rs`:
+
+| Feature | Detail | Source |
+|---|---|---|
+| Personal dictionary | `voice-replace = heard => wanted` (repeatable; `->` also accepted), or maintained under "Voice dictionary" in Settings. Whisper keeps mishearing project and tool names as homophones; a table you own is the most direct fix. Longest pattern first, literal replacement, **applied in both modes before anything else**. | `crates/vg-core/src/rewrite.rs` (`apply_dictionary`), `crates/vg-core/src/config.rs`, `crates/vg-app/src/settings_ui.rs` |
+| Spoken symbols | `voice-spoken-symbols` / "Spoken symbols" in Settings, on by default, **dictation mode only**. "cargo dot toml" → `cargo.toml`, "ls dash l" → `ls -l`, "src slash main" → `src/main`, "double dash force" → `--force`, plus underscore, colon, pipe, tilde, star, brackets and more; the Chinese names (点、横杠、斜杠、下划线…) work too. Words like 点 ("dot", also "a bit"/"click") are everywhere in Chinese prose, so a symbol word is converted only when it is **adjacent** (ignoring spaces) to ASCII alphanumerics, another symbol or another symbol word; 「帮我点一下」 stays as is. English words also need non-alphanumeric boundaries (dotfiles is untouched). Each symbol carries its own spacing rule: `.` `_` `/` `:` glue both sides, `-` `~` `*` swallow only the following space, `,` `;` only the preceding one, `|` `>` `<` keep both. | `crates/vg-core/src/rewrite.rs` (`spoken_symbols`) |
+
+Newlines are then replaced with spaces (see § 4, Safety model) and the text is typed. The status bar reads "typed: …".
 
 ### Natural language
 
@@ -484,6 +491,8 @@ false, anything else is true. **23 keys:**
 | `voice-device` | system default | Microphone device name |
 | `voice-hold-ms` | `250` | How long Space must be held to count as push-to-talk |
 | `voice-live-caption` | `on` | Show live captions while recording (local engines only) |
+| `voice-spoken-symbols` | `on` | Dictation turns spoken symbol names into symbols ("dot" → `.`, "dash" → `-`) |
+| `voice-replace` | — | Personal dictionary, `heard => wanted`, repeatable; the Settings dictionary takes precedence |
 
 Source: `crates/vg-core/src/config.rs`, `crates/vg-core/src/paths.rs`
 

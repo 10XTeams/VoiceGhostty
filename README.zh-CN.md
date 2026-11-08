@@ -206,7 +206,7 @@ brew services start ollama    # 后台服务,开机自启
 ollama pull qwen3:1.7b        # ~1.4GB
 ```
 
-装好后无需任何配置:自然语言模式会先把识别文本过一遍矫正再送给 LLM;没有配置 Claude Key 时,命令也由它生成。Ollama 没在跑或超时,会静默使用原文,绝不阻塞。听写模式不走这条链路,说什么就逐字敲什么。
+装好后无需任何配置:自然语言模式会先把识别文本过一遍矫正再送给 LLM;没有配置 Claude Key 时,命令也由它生成。Ollama 没在跑或超时,会静默使用原文,绝不阻塞。听写模式不走这条链路,只经过个人词典(`voice-replace`)和口述符号(「点」→ `.`,`voice-spoken-symbols`)两步确定性替换。
 
 ### Shell 集成
 

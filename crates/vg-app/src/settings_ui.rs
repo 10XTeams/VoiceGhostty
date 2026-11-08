@@ -70,7 +70,21 @@ impl VoiceGhosttyApp {
                             changed = true;
                         }
                     });
+                    kit::hairline(ui);
+                    kit::setting_row(ui, "口述符号", Some("听写时「点」「横杠」「斜杠」等换成 . - /;只在挨着英文数字时转换"), |ui| {
+                        let mut sym = self.config.voice.spoken_symbols;
+                        if toggle(ui, &mut sym).changed() {
+                            self.settings.spoken_symbols = Some(sym);
+                            changed = true;
+                        }
+                    });
                 });
+
+                ui.add_space(10.0);
+                kit::section(ui, "语音词典");
+                if self.replacements_section(ui) {
+                    changed = true;
+                }
 
                 ui.add_space(10.0);
                 kit::section(ui, "终端");
@@ -195,6 +209,51 @@ impl VoiceGhosttyApp {
             self.config.theme_name = theme_name; // 主题选择本次会话内有效(配置文件为准)
             style::apply(ctx, &self.config.theme());
         }
+    }
+
+    /// 设置页的个人词典:每行「听成的 → 想要的」,两种语音模式都先按它替换
+    fn replacements_section(&mut self, ui: &mut egui::Ui) -> bool {
+        let p = palette(ui.ctx());
+        let mut rules = self.config.voice.replacements.clone();
+        let mut changed = false;
+        let mut remove: Option<usize> = None;
+        kit::card(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            ui.label(
+                RichText::new("老被听错的词写在左边,想要的写在右边;长的先匹配,听写和自然语言都生效")
+                    .font(style::small())
+                    .color(p.text3),
+            );
+            ui.add_space(2.0);
+            for (i, (from, to)) in rules.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    let w = (ui.available_width() - 26.0 - 18.0 - 12.0) / 2.0;
+                    if ui.add_sized(vec2(w, 24.0), egui::TextEdit::singleline(from).hint_text("听成的")).changed() {
+                        changed = true;
+                    }
+                    ui.label(RichText::new("→").color(p.text3));
+                    if ui.add_sized(vec2(w, 24.0), egui::TextEdit::singleline(to).hint_text("想要的")).changed() {
+                        changed = true;
+                    }
+                    if kit::icon_button_sized(ui, Icon::Trash, false, 24.0, 13.0).on_hover_text("移除").clicked() {
+                        remove = Some(i);
+                    }
+                });
+            }
+            if kit::button(ui, "添加一条…", kit::Kind::Secondary, true).clicked() {
+                rules.push((String::new(), String::new()));
+                changed = true;
+            }
+        });
+        if let Some(i) = remove {
+            rules.remove(i);
+            changed = true;
+        }
+        if changed {
+            self.settings.voice_replacements = Some(rules);
+        }
+        changed
     }
 
     /// 设置页的"加载文件夹"列表:顺序决定重名时谁优先

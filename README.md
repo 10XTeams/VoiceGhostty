@@ -221,7 +221,8 @@ ollama pull qwen3:1.7b        # ~1.4GB
 
 No further configuration: natural-language mode runs the transcript through it before the LLM, and without a
 Claude key it generates the command too. If Ollama isn't running or times out, the raw transcript is used
-silently. Dictation mode never goes through it — what you say is typed verbatim.
+silently. Dictation mode never goes through it — what you say is typed as recognized, after only the personal
+dictionary and spoken-symbol passes (`voice-replace`, `voice-spoken-symbols`).
 
 ### Shell integration
 
@@ -237,7 +238,8 @@ output and full-screen TUIs like `claude` are untouched, and only zsh is instrum
 Mic (cpal → 16 kHz resample → trim leading/trailing silence)
   → speech engine (built-in whisper.cpp / external command / OpenAI-compatible HTTP)
   → text
-     ├─ [Dictation]        verbatim
+  → personal dictionary (voice-replace)
+     ├─ [Dictation]        spoken symbols ("dot" → .) → as is
      └─ [Natural language] optional Ollama cleanup → LLM → command + explanation
                               ├─ Claude API
                               └─ local Ollama
