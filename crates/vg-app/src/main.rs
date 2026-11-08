@@ -9,6 +9,7 @@ mod loader_panel;
 #[cfg(target_os = "macos")]
 mod macos;
 mod monitor;
+mod notify;
 mod pipeline;
 mod ptt;
 mod settings_ui;

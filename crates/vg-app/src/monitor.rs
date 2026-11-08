@@ -1,4 +1,5 @@
-//! 后台监视线程:每 0.5 秒推进所有窗格的状态灯、写会话记录、读 claude 用量,该响就响提示音。
+//! 后台监视线程:每 0.5 秒推进所有窗格的状态灯、写会话记录、读 claude 用量,该响就响提示音;
+//! 窗口在后台时还发一条系统通知(macOS 走 `osascript display notification`,不需要额外依赖和权限弹窗)。
 //! 放在 UI 线程之外,是因为最需要提示音的时候恰恰是窗口在后台、egui 不重绘的时候。
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,13 +15,20 @@ const CHIME_MIN_INTERVAL: Duration = Duration::from_secs(5);
 pub struct Monitor {
     panes: Arc<Mutex<Vec<Weak<PaneShared>>>>,
     pub chime_enabled: Arc<AtomicBool>,
+    /// 窗口在后台时是否发系统通知(设置「后台通知」)
+    pub notify_enabled: Arc<AtomicBool>,
+    /// UI 线程每帧写入:窗口当前是否在前台。失焦事件会触发一次重绘,所以窗口到后台后这个值是对的
+    pub window_focused: Arc<AtomicBool>,
 }
 
 impl Monitor {
-    pub fn start(ctx: egui::Context, chime_enabled: bool) -> Monitor {
+    pub fn start(ctx: egui::Context, chime_enabled: bool, notify_enabled: bool) -> Monitor {
         let panes: Arc<Mutex<Vec<Weak<PaneShared>>>> = Arc::default();
         let chime_flag = Arc::new(AtomicBool::new(chime_enabled));
+        let notify_flag = Arc::new(AtomicBool::new(notify_enabled));
+        let focused_flag = Arc::new(AtomicBool::new(true));
         let (list, flag) = (panes.clone(), chime_flag.clone());
+        let (notify, focused) = (notify_flag.clone(), focused_flag.clone());
         std::thread::Builder::new()
             .name("vg-monitor".into())
             .spawn(move || {
@@ -36,10 +44,12 @@ impl Monitor {
                     };
                     let mut changed = false;
                     let mut chime = false;
+                    let mut attention = Vec::new();
                     for pane in alive {
                         let r = pane.tick(n);
                         changed |= r.changed;
                         chime |= r.chime;
+                        attention.extend(r.attention);
                     }
                     if chime
                         && flag.load(Ordering::Relaxed)
@@ -48,18 +58,30 @@ impl Monitor {
                         last_chime = Some(Instant::now());
                         vg_voice::chime::play();
                     }
+                    // 你在别的窗口里:系统通知说清楚是哪个窗格、什么状态。几个同时变就合成一条
+                    if !attention.is_empty() && notify.load(Ordering::Relaxed) && !focused.load(Ordering::Relaxed) {
+                        notify_attention(&attention);
+                    }
                     if changed {
                         ctx.request_repaint();
                     }
                 }
             })
             .expect("spawn monitor thread");
-        Monitor { panes, chime_enabled: chime_flag }
+        Monitor { panes, chime_enabled: chime_flag, notify_enabled: notify_flag, window_focused: focused_flag }
     }
 
     pub fn watch(&self, pane: &Arc<PaneShared>) {
         self.panes.lock().unwrap().push(Arc::downgrade(pane));
     }
+}
+
+/// 发一条系统通知:「<目录>:已完成 / 等你输入」。多个窗格同一 tick 变灯就合成一条
+fn notify_attention(items: &[(vg_core::SessionStatus, String)]) {
+    let body = items.iter().map(|(s, name)| format!("{name}:{}", s.label())).collect::<Vec<_>>().join("\n");
+    let waiting = items.iter().any(|(s, _)| *s == vg_core::SessionStatus::Waiting);
+    let title = if waiting { "VoiceGhostty · 等你输入" } else { "VoiceGhostty · 已完成" };
+    crate::notify::send(title, &body);
 }
 
 /// 清理已退出的 App 实例留下的状态文件(被强杀时来不及删)。文件名以创建它的进程号开头

@@ -46,7 +46,7 @@ Working with [Claude Code](https://claude.com/claude-code) means a lot of "type 
 | 🧠 **Two voice modes** | *Dictation* (verbatim) and *Natural language* (Claude API or local Ollama → command + explanation, optionally with an Ollama cleanup pass first). <kbd>⌘⇧N</kbd> toggles. |
 | 🌏 **Chinese & English** | Recognition language `zh` / `en` / `auto`. Automatic punctuation is on by default; turn it off when you mostly dictate shell commands. |
 | 🚦 **Status lights** | Every tab and pane shows gray / yellow / green / orange — idle, running, finished-and-waiting-on-you, **stuck waiting for your input** (Claude Code asking for permission, `[y/N]`, a password). Exact under zsh via shell integration; inferred from output and bells inside full-screen programs like `claude` or `vim`. The pane you're looking at stays gray; background windows still update. <kbd>⌘B</kbd> opens a pane-list sidebar to spot the orange one at a glance. |
-| 🔔 **Done chime** | A synthesized sound the moment a pane turns green, at most once every 5 seconds, switchable in Settings. |
+| 🔔 **Done chime & background notifications** | A synthesized sound the moment a pane turns green, at most once every 5 seconds; when the window is in the background, a system notification also says which folder finished or is waiting for you. Both switchable in Settings. |
 | 🗂 **Tabs & nested splits** | <kbd>⌘T</kbd> / <kbd>⌘W</kbd>, <kbd>⌘1…⌘9</kbd>. <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> split the **active pane** and repeat: three <kbd>⌘D</kbd> give three even columns, a perpendicular split makes a grid; the new pane's shell starts in the original pane's current directory. <kbd>⌘⌥</kbd>+arrows move focus across the split tree. Tabs name themselves after their working directory; double-click to rename, middle-click to close. |
 | ↗️ **Move a split to another tab** | <kbd>⌘⌃1…8</kbd> sends the focused pane to the Nth tab, <kbd>⌘⌃←→</kbd> to the neighbouring tab, <kbd>⌘⌃T</kbd> out into a tab of its own. The shell keeps running and scrollback comes along. |
 | 🧩 **Dynamic skill / agent loading** | Checkbox panel (<kbd>⌘L</kbd>): a folder's skills (subfolders with `SKILL.md`) and agents (`.md` files with front matter) are found automatically; apply and they're copied into `cwd/.claude/skills/` and `cwd/.claude/agents/`, never overwriting what's there; unchecking removes them. Auto-runs `/reload-skills` and `/reload-plugins`. |
@@ -73,7 +73,7 @@ Press <kbd>⌘/</kbd> in the app for the full table. Linux / Windows don't use p
 | Undo the last voice insertion (or say "undo") | <kbd>⌘Z</kbd> | <kbd>Ctrl⇧Z</kbd> |
 | New / close (pane first, then tab) | <kbd>⌘T</kbd> / <kbd>⌘W</kbd> | <kbd>Ctrl⇧T</kbd> / <kbd>Ctrl⇧W</kbd> |
 | Split right / down (repeatable) | <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> | <kbd>Ctrl⇧D</kbd> / <kbd>Ctrl⇧E</kbd> |
-| Move split focus | <kbd>⌘⌥</kbd>←↑↓→ | <kbd>Ctrl Alt</kbd>←↑↓→ |
+| Move split focus / swap split places | <kbd>⌘⌥</kbd>←↑↓→ / <kbd>⌘⌥⇧</kbd>←↑↓→ | <kbd>Ctrl Alt</kbd>←↑↓→ / <kbd>Ctrl Shift</kbd>←↑↓→ |
 | Send split to Nth tab | <kbd>⌘⌃1…8</kbd> | <kbd>Ctrl Alt 1…8</kbd> |
 | Send split to previous / next / new tab | <kbd>⌘⌃←</kbd> / <kbd>⌘⌃→</kbd> / <kbd>⌘⌃T</kbd> | <kbd>Ctrl Alt ⇧←</kbd> / <kbd>→</kbd> / <kbd>T</kbd> |
 | Next / previous tab | <kbd>⌘⇧]</kbd> / <kbd>⌘⇧[</kbd> | <kbd>Ctrl PageDown</kbd> / <kbd>PageUp</kbd> |

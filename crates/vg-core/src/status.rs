@@ -147,6 +147,11 @@ impl StatusMachine {
         }
     }
 
+    /// shell 正停在提示符上等你敲命令(只有见过 shell 集成才敢说是)
+    pub fn at_prompt(&self) -> bool {
+        self.integration_seen && !self.cmd_running
+    }
+
     /// shell 集成报告有命令在跑(没有集成时按输出活动推断:最近有过输出就算)
     pub fn is_command_running(&self) -> bool {
         if self.integration_seen { self.cmd_running } else { self.has_activity }

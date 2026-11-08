@@ -323,11 +323,56 @@ fn handle_mouse(
         state.selecting = false;
         // 单击没拖动:清掉空选区
         let mut term = session.term.lock();
-        if term.selection.as_ref().is_some_and(|s| s.is_empty()) {
+        let was_click = term.selection.as_ref().is_some_and(|s| s.is_empty());
+        if was_click {
             term.selection = None;
+        }
+        drop(term);
+        // 单击在正在编辑的命令行上:把光标挪过去(发等量的 ← / →)。只在 shell 停在提示符、
+        // 没滚动、不在备用屏、点的正是光标所在行时做;别处的单击照旧只是清选区
+        if was_click && state.click_count == 1 && !command {
+            if let Some(bytes) = click_to_move_cursor(session, rect, cw, ch, pos) {
+                session.write(bytes);
+            }
         }
     }
     None
+}
+
+/// 点击命令行时把光标移到点击处所需的按键字节;条件不满足返回 None
+fn click_to_move_cursor(session: &TerminalSession, rect: Rect, cw: f32, ch: f32, pos: Pos2) -> Option<Vec<u8>> {
+    if !session.shared.at_prompt() {
+        return None;
+    }
+    let term = session.term.lock();
+    let mode = *term.mode();
+    if mode.contains(TermMode::ALT_SCREEN) || term.grid().display_offset() != 0 {
+        return None;
+    }
+    let cursor = term.grid().cursor.point;
+    let col_count = term.grid().columns();
+    let row = ((pos.y - rect.min.y) / ch).floor() as i32;
+    if row != cursor.line.0 {
+        return None;
+    }
+    let col = (((pos.x - rect.min.x) / cw).floor().max(0.0) as usize).min(col_count.saturating_sub(1));
+    // 只能挪到有内容的地方:行尾(含)之后的空白不算
+    let line = &term.grid()[cursor.line];
+    let mut last = cursor.column.0;
+    for c in (0..col_count).rev() {
+        if line[Column(c)].c != ' ' {
+            last = last.max(c + 1);
+            break;
+        }
+    }
+    let target = col.min(last);
+    let delta = target as i32 - cursor.column.0 as i32;
+    if delta == 0 {
+        return None;
+    }
+    let key = if delta > 0 { egui::Key::ArrowRight } else { egui::Key::ArrowLeft };
+    let step = keys::encode(key, egui::Modifiers::NONE, mode.contains(TermMode::APP_CURSOR))?;
+    Some(step.repeat(delta.unsigned_abs() as usize))
 }
 
 fn copy_selection(ui: &egui::Ui, session: &TerminalSession) {

@@ -38,6 +38,8 @@ pub struct Settings {
     pub input_color: String,
     /// 状态灯变绿(命令结束)时是否提示音
     pub done_sound: bool,
+    /// 窗口在后台时,窗格变绿 / 变橙发系统通知
+    pub notify_in_background: bool,
     /// 技能库目录;写过一次后即使为空也以它为准(清空也是一种选择)
     pub skill_library_dirs: Option<Vec<PathBuf>>,
     /// 🧩 面板里折叠的分组,键为 "<页签>/<文件夹>"
@@ -65,6 +67,7 @@ impl Default for Settings {
             save_history: true,
             input_color: "#5CC8FF".into(),
             done_sound: true,
+            notify_in_background: true,
             skill_library_dirs: None,
             loader_groups_collapsed: BTreeSet::new(),
             claude_dirs: Vec::new(),

@@ -130,6 +130,8 @@ pub struct PaneShared {
 pub struct TickResult {
     pub changed: bool,
     pub chime: bool,
+    /// 这一 tick 灯变成了「值得你过去看」的状态(绿 / 橙),带上状态与窗格名,供系统通知用
+    pub attention: Option<(SessionStatus, String)>,
 }
 
 impl PaneShared {
@@ -143,6 +145,11 @@ impl PaneShared {
 
     pub fn cwd(&self) -> Option<PathBuf> {
         self.cwd.lock().unwrap().clone()
+    }
+
+    /// shell 正停在提示符上(zsh 集成下才知道);点击移动光标只在这时做
+    pub fn at_prompt(&self) -> bool {
+        self.status.lock().unwrap().machine.at_prompt()
     }
 
     /// 最近一条经 shell 集成看到的命令(没有 zsh 集成时为 None)
@@ -178,7 +185,9 @@ impl PaneShared {
                 let prompt_visible = st.machine.is_command_running() && self.screen_looks_like_prompt();
                 let (changed, chime) =
                     st.machine.refresh(Observation { now: Instant::now(), interactive_app, prompt_visible }, SILENCE);
-                result = TickResult { changed, chime };
+                let attention = (chime && st.machine.status.needs_attention())
+                    .then(|| (st.machine.status, self.folder_name()));
+                result = TickResult { changed, chime, attention };
             }
         }
 
@@ -207,6 +216,15 @@ impl PaneShared {
             }
         }
         result
+    }
+
+    /// 窗格所在目录的文件夹名(家目录为 ~),通知里用
+    fn folder_name(&self) -> String {
+        match self.cwd() {
+            Some(dir) if dir == paths::home_dir() => "~".into(),
+            Some(dir) => dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "/".into()),
+            None => "终端".into(),
+        }
     }
 
     /// 屏幕最后几行像不像一个等待回答的提示(权限确认、y/n、密码)

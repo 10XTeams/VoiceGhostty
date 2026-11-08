@@ -114,6 +114,7 @@
 | 回滚区 | 默认每个分屏 10000 行(`scrolling_history`)。配置文件 `scrollback` 或设置面板(500–200000)可调,面板改动立即应用到已打开的分屏(缩小会马上丢掉最老的行)。 | `crates/vg-app/src/terminal/session.rs`、`crates/vg-core/src/settings.rs` |
 | 清屏 | <kbd>⌘K</kbd> 发送换页符(Ctrl-L),由 shell 重绘清屏。 | `crates/vg-app/src/terminal/session.rs` |
 | 选择与复制 | 鼠标拖选;双击选词、三击选行(400 ms、4 px 内算连击);单击没拖动则清掉选区。macOS <kbd>⌘C</kbd> 复制;Linux / Windows 上 egui 把 Ctrl+C 也变成复制事件,所以**带 Shift(Ctrl+Shift+C)才是复制**,单独 Ctrl+C 仍是中断(`^C`)。<kbd>⌘A</kbd> 全选历史与屏幕。程序通过 OSC 52 写剪贴板也会到系统剪贴板。 | `crates/vg-app/src/terminal/view.rs` |
+| 点击移动光标 | shell 停在提示符上(zsh 集成下才知道)、没滚动、不在备用屏时,单击**光标所在那一行**的某处,就发等量的 ← / → 把光标挪过去(Ghostty 1.3 的 click-to-move-cursor);只能挪到行内最后一个非空字符为止,点别的行照旧只是清选区。多行命令只在当前行内有效。 | `crates/vg-app/src/terminal/view.rs`(`click_to_move_cursor`)、`crates/vg-core/src/status.rs`(`at_prompt`) |
 | 链接 | 按住 <kbd>⌘</kbd>(Linux / Windows 是 Ctrl)悬停:指针下的 URL 画下划线、光标变手形,点一下用系统默认程序打开。两种来源:程序用 OSC 8 标出的超链接(`ls --hyperlink`、`gh`),以及可见屏幕里匹配 `http(s)://`、`file://`、`ftp://`、`git://`、`ssh://`、`mailto:` 的文字。句尾标点(`.` `,` `;` 以及不配对的 `)`)不算进地址。⌘+点在非链接文字上就是普通点击。只打开这几种协议,OSC 8 给的也一样。 | `crates/vg-app/src/terminal/links.rs` |
 | 粘贴 | <kbd>⌘V</kbd>(其他平台 Ctrl+V)。终端开着括号粘贴模式时包成 `\e[200~…\e[201~`,并先剔除内容里的结束标记,防止粘贴内容「逃出」括号直接执行;否则把换行转成 `\r`。粘贴前滚到底部。 | `crates/vg-app/src/terminal/view.rs` |
 | 键盘 | xterm 风格编码:方向键 / Home / End 区分应用光标模式(DECCKM),带修饰键时用 `CSI 1;m X`;PageUp / Delete / F1–F12;Ctrl+字母 → 控制字符,Ctrl+Space → NUL;非 macOS 上 Alt+字母作为 Meta(ESC 前缀),macOS 的 Option 组合交给系统产生字符;⌘ 组合一律不发终端。可打印字符走文本事件。 | `crates/vg-app/src/terminal/keys.rs` |
@@ -373,6 +374,7 @@
 | 语音 | 实时字幕 / 口述符号 | 见第 1 节、第 3 节。 |
 | 语音词典 | — | 「听成的 → 想要的」列表,可增删,见第 3 节。 |
 | 终端 | 完成提示音 | 状态灯转绿时响一声,默认开;旁边 ▶ 试听。即时作用于监视线程。 |
+| 终端 | 后台通知 | 窗口在后台时窗格变绿 / 变橙发一条系统通知(「<目录>:已完成 / 等你输入」,同一 tick 多个合成一条),默认开;旁边 ▶ 试一条。macOS 走 `osascript display notification`(零依赖、不弹权限,通知归「脚本编辑器」名下),Linux 走 `notify-send`。 |
 | 终端 | 保存会话记录 | 会话历史开关,默认开,对此后新开的分屏生效;旁边文件夹按钮打开记录目录。 |
 | 终端 | 默认文件夹 | <kbd>⌘T</kbd> 新标签页和启动时第一个窗格的起始目录,默认家目录;文件夹按钮选目录,✕ 恢复为家目录。目录已不存在时回到家目录。分屏不受它影响,跟随原窗格(见第 7 节)。 |
 | 终端 | 历史行数 | 500–200000 的拖拽数值框,超范围自动夹回;立即应用到已打开的分屏。 |
@@ -490,6 +492,7 @@ macOS 用 ⌘ 系;Linux / Windows 上单 Ctrl 组合要留给终端(Ctrl+T / W /
 | 跳到第 N 个 / 最后一个标签页 | <kbd>⌘1</kbd>…<kbd>⌘8</kbd> / <kbd>⌘9</kbd> | <kbd>Alt+1</kbd>…<kbd>Alt+8</kbd> / <kbd>Alt+9</kbd> |
 | 向右分屏 / 向下分屏 | <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> | <kbd>Ctrl+Shift+D</kbd> / <kbd>Ctrl+Shift+E</kbd> |
 | 按方向切换分屏焦点 | <kbd>⌘⌥←↑↓→</kbd> | <kbd>Ctrl+Alt+←↑↓→</kbd> |
+| 与那个方向的分屏交换位置 | <kbd>⌘⌥⇧←↑↓→</kbd> | <kbd>Ctrl+Shift+←↑↓→</kbd> |
 | 把当前分屏送到第 N 个标签页 | <kbd>⌘⌃1</kbd>…<kbd>⌘⌃8</kbd> | <kbd>Ctrl+Alt+1</kbd>…<kbd>Ctrl+Alt+8</kbd> |
 | 把当前分屏送到上一个 / 下一个标签页 | <kbd>⌘⌃←</kbd> / <kbd>⌘⌃→</kbd> | <kbd>Ctrl+Alt+Shift+←</kbd> / <kbd>Ctrl+Alt+Shift+→</kbd> |
 | 把当前分屏移出成新标签页 | <kbd>⌘⌃T</kbd> | <kbd>Ctrl+Alt+Shift+T</kbd> |

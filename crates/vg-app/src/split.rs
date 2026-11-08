@@ -102,6 +102,16 @@ impl<Id: Copy + PartialEq> Node<Id> {
         }
     }
 
+    /// 交换两个窗格的位置(布局不变,只是谁在哪个格子里换了)
+    pub fn swapping(&self, a: Id, b: Id) -> Node<Id> {
+        match self {
+            Node::Leaf(id) if *id == a => Node::Leaf(b),
+            Node::Leaf(id) if *id == b => Node::Leaf(a),
+            Node::Leaf(_) => self.clone(),
+            Node::Branch(axis, children) => Node::Branch(*axis, children.iter().map(|c| c.swapping(a, b)).collect()),
+        }
+    }
+
     /// 移除一个终端。只剩一个孩子的分支收缩成那个孩子,关窗格不会留下空架子。子树空了返回 None
     pub fn removing(&self, target: Id) -> Option<Node<Id>> {
         match self {

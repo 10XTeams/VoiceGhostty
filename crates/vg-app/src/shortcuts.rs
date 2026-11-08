@@ -18,6 +18,10 @@ pub enum Action {
     FocusRight,
     FocusUp,
     FocusDown,
+    SwapLeft,
+    SwapRight,
+    SwapUp,
+    SwapDown,
     MoveToTab(u8), // 1…8
     MoveToNewTab,
     MoveToPrevTab,
@@ -49,6 +53,7 @@ const CMD: Modifiers = Modifiers::MAC_CMD;
 const CMD_SHIFT: Modifiers = Modifiers { shift: true, ..Modifiers::MAC_CMD };
 const CMD_ALT: Modifiers = Modifiers { alt: true, ..Modifiers::MAC_CMD };
 const CMD_CTRL: Modifiers = Modifiers { ctrl: true, ..Modifiers::MAC_CMD };
+const CMD_ALT_SHIFT: Modifiers = Modifiers { alt: true, shift: true, ..Modifiers::MAC_CMD };
 const CS: Modifiers = Modifiers { ctrl: true, shift: true, ..Modifiers::NONE };
 const CA: Modifiers = Modifiers { ctrl: true, alt: true, ..Modifiers::NONE };
 const CAS: Modifiers = Modifiers { ctrl: true, alt: true, shift: true, ..Modifiers::NONE };
@@ -87,6 +92,11 @@ impl Action {
             FocusRight => pick(m(CMD_ALT, Key::ArrowRight), m(CA, Key::ArrowRight)),
             FocusUp => pick(m(CMD_ALT, Key::ArrowUp), m(CA, Key::ArrowUp)),
             FocusDown => pick(m(CMD_ALT, Key::ArrowDown), m(CA, Key::ArrowDown)),
+            // 非 macOS 上 Ctrl+Alt+Shift+←→ 已被「移到相邻标签页」占用,交换用 Ctrl+Shift+方向键
+            SwapLeft => pick(m(CMD_ALT_SHIFT, Key::ArrowLeft), m(CS, Key::ArrowLeft)),
+            SwapRight => pick(m(CMD_ALT_SHIFT, Key::ArrowRight), m(CS, Key::ArrowRight)),
+            SwapUp => pick(m(CMD_ALT_SHIFT, Key::ArrowUp), m(CS, Key::ArrowUp)),
+            SwapDown => pick(m(CMD_ALT_SHIFT, Key::ArrowDown), m(CS, Key::ArrowDown)),
             MoveToTab(n) => pick(m(CMD_CTRL, DIGITS[n as usize - 1]), m(CA, DIGITS[n as usize - 1])),
             MoveToNewTab => pick(m(CMD_CTRL, Key::T), m(CAS, Key::T)),
             MoveToPrevTab => pick(m(CMD_CTRL, Key::ArrowLeft), m(CAS, Key::ArrowLeft)),
@@ -172,6 +182,7 @@ pub fn help_sections(ptt_key: &str, global_hotkey: Option<&str>) -> Vec<(&'stati
                 row(SplitRight, "向右分屏"),
                 row(SplitDown, "向下分屏"),
                 (format!("{} 等方向键", FocusLeft.label()), "按方向切换分屏焦点"),
+                (format!("{} 等方向键", SwapLeft.label()), "与那个方向的分屏交换位置"),
                 (move_n.into(), "移到第 N 个标签页"),
                 (format!("{} / {}", MoveToPrevTab.label(), MoveToNextTab.label()), "移到上一个 / 下一个标签页"),
                 row(MoveToNewTab, "移出成新标签页"),
@@ -215,7 +226,7 @@ mod tests {
         use Action::*;
         let mut all: Vec<Action> = vec![
             NewTab, Close, SplitRight, SplitDown, NextTab, PrevTab, LastTab, FocusLeft, FocusRight, FocusUp,
-            FocusDown, MoveToNewTab, MoveToPrevTab, MoveToNextTab, FontBigger, FontSmaller, FontReset,
+            FocusDown, SwapLeft, SwapRight, SwapUp, SwapDown, MoveToNewTab, MoveToPrevTab, MoveToNextTab, FontBigger, FontSmaller, FontReset,
             ClearScreen, Find, SelectAll, ToggleRecording, ToggleMode, UndoVoice, Loader, Settings, Help, Sidebar,
         ];
         all.extend((1..=8).map(Tab));

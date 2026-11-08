@@ -143,7 +143,7 @@ impl VoiceGhosttyApp {
 
         let mut app = VoiceGhosttyApp {
             font_size: config.font_size,
-            monitor: Monitor::start(cc.egui_ctx.clone(), settings.done_sound),
+            monitor: Monitor::start(cc.egui_ctx.clone(), settings.done_sound, settings.notify_in_background),
             config,
             settings,
             ws: Workspace::default(),
@@ -334,6 +334,11 @@ impl VoiceGhosttyApp {
         for (action, dir) in [(FocusLeft, Dir::Left), (FocusRight, Dir::Right), (FocusUp, Dir::Up), (FocusDown, Dir::Down)] {
             if action.consume(ctx) {
                 self.ws.focus_dir(dir);
+            }
+        }
+        for (action, dir) in [(SwapLeft, Dir::Left), (SwapRight, Dir::Right), (SwapUp, Dir::Up), (SwapDown, Dir::Down)] {
+            if action.consume(ctx) {
+                self.ws.swap_active(dir);
             }
         }
         if MoveToNewTab.consume(ctx) {
@@ -668,6 +673,7 @@ impl VoiceGhosttyApp {
         let frames = tab.root.frames(ui.available_rect_before_wrap(), SPLIT_GAP);
         let (active, split) = (tab.active, tab.is_split());
         let window_focused = ui.input(|i| i.focused);
+        self.monitor.window_focused.store(window_focused, Ordering::Relaxed);
         let theme = self.config.theme();
         let p = style::palette(ui.ctx());
         // 键盘焦点归终端,除非搜索框或改名框在用

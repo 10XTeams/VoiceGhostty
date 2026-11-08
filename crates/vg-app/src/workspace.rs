@@ -153,6 +153,15 @@ impl<P> Workspace<P> {
         }
     }
 
+    /// ⌘⌥⇧方向键:当前窗格与那个方向上相邻的窗格互换位置(shell 不中断),焦点跟着走
+    pub fn swap_active(&mut self, dir: Dir) {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            if let Some(other) = tab.root.neighbor(tab.active, dir) {
+                tab.root = tab.root.swapping(tab.active, other);
+            }
+        }
+    }
+
     /// ⌘⌥方向键:按分屏树找相邻窗格;那一侧没有窗格就不动
     pub fn focus_dir(&mut self, dir: Dir) {
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {

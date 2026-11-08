@@ -46,7 +46,7 @@ Rust 编写,macOS 预编译发布,Linux / Windows 可从源码构建。按住说
 | 🧠 **两种语音模式** | *听写*(说什么敲什么)与*自然语言*(Claude API 或本地 Ollama → 命令 + 解释;可选先用 Ollama 小模型纠错)。<kbd>⌘⇧N</kbd> 切换。 |
 | 🌏 **中英识别** | 识别语言 `zh` / `en` / `auto`,默认自动加标点,主要口述 shell 命令时建议关掉。 |
 | 🚦 **状态灯** | 每个标签页和分屏都有灰 / 黄 / 绿 / 橙四态点:空闲、执行中、已完成等你处理、**卡住等你输入**(Claude Code 等你批准、`[y/N]`、密码)。zsh 下靠 shell 集成精确判断;`claude`、`vim` 这类全屏程序按输出和响铃推断。你正在看的窗格保持灰色;窗口在后台也照常变色。<kbd>⌘B</kbd> 打开窗格列表侧边栏,一眼找到那个橙色的。 |
-| 🔔 **完成提示音** | 窗格变绿的那一刻响一声合成提示音,5 秒内最多一次,设置里可关。 |
+| 🔔 **完成提示音与后台通知** | 窗格变绿的那一刻响一声合成提示音,5 秒内最多一次;窗口在后台时还发一条系统通知说清是哪个目录做完了或在等你。设置里都可关。 |
 | 🗂 **标签与嵌套分屏** | <kbd>⌘T</kbd> / <kbd>⌘W</kbd>、<kbd>⌘1…⌘9</kbd>。<kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> 拆的是**当前分屏**且可反复按:连按三次 <kbd>⌘D</kbd> 得到三等分,换个方向再拆就是网格;新格在原窗格当前目录里开 shell。<kbd>⌘⌥</kbd>+方向键按分屏树切焦点。标签名跟随工作目录,双击改名,中键关闭。 |
 | ↗️ **分屏跨标签页移动** | <kbd>⌘⌃1…8</kbd> 把当前格送到第 N 个标签页,<kbd>⌘⌃←→</kbd> 送到相邻标签页,<kbd>⌘⌃T</kbd> 移出成新标签页。shell 不中断、滚动历史一起过去。 |
 | 🧩 **动态加载技能 / Agent** | 勾选式面板(<kbd>⌘L</kbd>):自动识别文件夹里的技能(带 `SKILL.md` 的子文件夹)和 Agent(带 front matter 的 `.md`),应用后复制进 `cwd/.claude/skills/` 与 `cwd/.claude/agents/`,已存在的不覆盖,取消勾选即移除,随后自动发送 `/reload-skills` 与 `/reload-plugins`。 |
@@ -73,7 +73,7 @@ Rust 编写,macOS 预编译发布,Linux / Windows 可从源码构建。按住说
 | 撤销上一次语音上屏(或说「撤销」) | <kbd>⌘Z</kbd> | <kbd>Ctrl⇧Z</kbd> |
 | 新建 / 关闭(先关分屏,再关标签页) | <kbd>⌘T</kbd> / <kbd>⌘W</kbd> | <kbd>Ctrl⇧T</kbd> / <kbd>Ctrl⇧W</kbd> |
 | 向右 / 向下分屏(可反复) | <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> | <kbd>Ctrl⇧D</kbd> / <kbd>Ctrl⇧E</kbd> |
-| 切换分屏焦点 | <kbd>⌘⌥</kbd>←↑↓→ | <kbd>Ctrl⌥</kbd>←↑↓→ |
+| 切换分屏焦点 / 交换分屏位置 | <kbd>⌘⌥</kbd>←↑↓→ / <kbd>⌘⌥⇧</kbd>←↑↓→ | <kbd>Ctrl⌥</kbd>←↑↓→ / <kbd>Ctrl⇧</kbd>←↑↓→ |
 | 分屏送到第 N 个标签页 | <kbd>⌘⌃1…8</kbd> | <kbd>Ctrl⌥1…8</kbd> |
 | 分屏送到上一个 / 下一个 / 新标签页 | <kbd>⌘⌃←</kbd> / <kbd>⌘⌃→</kbd> / <kbd>⌘⌃T</kbd> | <kbd>Ctrl⌥⇧←</kbd> / <kbd>→</kbd> / <kbd>T</kbd> |
 | 下一个 / 上一个标签页 | <kbd>⌘⇧]</kbd> / <kbd>⌘⇧[</kbd> | <kbd>Ctrl PageDown</kbd> / <kbd>PageUp</kbd> |

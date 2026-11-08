@@ -130,6 +130,16 @@ impl VoiceGhosttyApp {
                         }
                     });
                     kit::hairline(ui);
+                    kit::setting_row(ui, "后台通知", Some("窗口在后台时,窗格做完或等你输入就发一条系统通知"), |ui| {
+                        if toggle(ui, &mut self.settings.notify_in_background).changed() {
+                            self.monitor.notify_enabled.store(self.settings.notify_in_background, Ordering::Relaxed);
+                            changed = true;
+                        }
+                        if kit::icon_button_sized(ui, Icon::Play, false, 26.0, 13.0).on_hover_text("试一条").clicked() {
+                            crate::notify::send("VoiceGhostty", "通知就长这样");
+                        }
+                    });
+                    kit::hairline(ui);
                     kit::setting_row(ui, "保存会话记录", Some("对之后新开的窗格生效"), |ui| {
                         if toggle(ui, &mut self.settings.save_history).changed() {
                             changed = true;
