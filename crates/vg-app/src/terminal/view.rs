@@ -59,6 +59,8 @@ pub struct ViewOptions<'a> {
 pub struct ViewOutput {
     /// 需要 App 处理的按住说话动作(开始/停止录音)
     pub actions: Vec<PttAction>,
+    /// 这一帧终端控件持有键盘焦点(否则焦点在搜索框、改名框、设置里的输入框之类的地方)
+    pub focused: bool,
     /// 这一帧被点了:App 把它设为当前窗格
     pub clicked: bool,
     /// ⌘+点击了一个链接:App 用系统默认程序打开它
@@ -130,7 +132,7 @@ pub fn show(
     }
 
     draw(ui, session, state, opts, rect, &font, cw, ch, focused);
-    ViewOutput { actions, clicked, open_url }
+    ViewOutput { actions, clicked, open_url, focused }
 }
 
 /// ⌘A:选中全部历史与屏幕

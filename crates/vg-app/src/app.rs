@@ -44,6 +44,13 @@ const SCREEN_CONTEXT_LINES: usize = 40;
 const FONT_MIN: f32 = 8.0;
 const FONT_MAX: f32 = 48.0;
 
+/// 语音结果往哪里落:终端光标处,或者开始录音时持有焦点的那个文本框(搜索、改名、设置里的输入框)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VoiceTarget {
+    Terminal,
+    Field(egui::Id),
+}
+
 /// 一次语音上屏的记录(撤销用)
 #[derive(Clone, Copy, Debug)]
 struct VoiceInsert {
@@ -99,6 +106,11 @@ pub struct VoiceGhosttyApp {
     pub(crate) caption: Option<String>,
     /// 上一次语音上屏:落在哪个窗格、多少个字符、当时该窗格的敲键计数。撤销要三者都对得上
     last_voice_insert: Option<VoiceInsert>,
+    /// 这一帧终端控件是否持有键盘焦点,以及 egui 里当前持有焦点的控件(每帧开头采样)
+    terminal_focused: bool,
+    focused_widget: Option<egui::Id>,
+    /// 这次录音开始时定下的落点
+    voice_target: VoiceTarget,
     /// 全局热键(配置了且注册成功时)与它按下的时刻:松开时按住够久就停止,否则当作开关
     global_hotkey: Option<GlobalHotkey>,
     global_hotkey_pressed: Option<Instant>,
@@ -156,6 +168,9 @@ impl VoiceGhosttyApp {
             level_sampled: None,
             caption: None,
             last_voice_insert: None,
+            terminal_focused: true,
+            focused_widget: None,
+            voice_target: VoiceTarget::Terminal,
             global_hotkey: None,
             global_hotkey_pressed: None,
             global_hotkey_error: None,
@@ -462,13 +477,25 @@ impl VoiceGhosttyApp {
                 PipelineEvent::Insert { text, explanation } => {
                     self.pipeline.finished();
                     self.caption = None;
-                    if let Some(pane) = self.ws.active_pane() {
-                        pane.session.type_text(&text);
-                        self.last_voice_insert = Some(VoiceInsert {
-                            pane: self.ws.active_pane_id().unwrap_or_default(),
-                            chars: text.chars().count(),
-                            typed_seq: pane.input.typed_seq,
-                        });
+                    match self.voice_target {
+                        // 开始录音时焦点在某个文本框里:把文字作为键盘输入事件交给它。
+                        // pump 在控件绘制之前跑,这一帧的输入事件它正好能收到;先把焦点还给它
+                        // (点状态栏胶囊停止录音会让输入框失焦)
+                        VoiceTarget::Field(id) => {
+                            ctx.memory_mut(|m| m.request_focus(id));
+                            ctx.input_mut(|i| i.events.push(egui::Event::Text(text.clone())));
+                            self.last_voice_insert = None;
+                        }
+                        VoiceTarget::Terminal => {
+                            if let Some(pane) = self.ws.active_pane() {
+                                pane.session.type_text(&text);
+                                self.last_voice_insert = Some(VoiceInsert {
+                                    pane: self.ws.active_pane_id().unwrap_or_default(),
+                                    chars: text.chars().count(),
+                                    typed_seq: pane.input.typed_seq,
+                                });
+                            }
+                        }
                     }
                     let note = explanation.unwrap_or_else(|| format!("已上屏:{text}"));
                     self.set_status(note, false);
@@ -496,6 +523,11 @@ impl VoiceGhosttyApp {
         match action {
             PttAction::StartRecording => match self.pipeline.start(&self.config, self.hotwords()) {
                 Ok(()) => {
+                    // 焦点不在终端而在某个文本框里(搜索、改名、设置):这次说的话归它
+                    self.voice_target = match self.focused_widget {
+                        Some(id) if !self.terminal_focused => VoiceTarget::Field(id),
+                        _ => VoiceTarget::Terminal,
+                    };
                     self.rec_started = Some(Instant::now());
                     self.levels = std::iter::repeat_n(0.0, chrome::WAVE_BARS).collect();
                     self.status = Status::default();
@@ -636,6 +668,7 @@ impl VoiceGhosttyApp {
         let ptt_key = self.ptt_key();
         let mut clicked = None;
         let mut actions = vec![];
+        let mut any_focused = false;
         for (id, rect) in frames {
             let Some(pane) = self.ws.panes.get_mut(&id) else { continue };
             let is_active = id == active;
@@ -658,6 +691,7 @@ impl VoiceGhosttyApp {
             if let Some(url) = out.open_url {
                 terminal::links::open(&url);
             }
+            any_focused |= out.focused;
             actions.extend(out.actions);
             // 分屏时其余窗格压暗一层,看得出语音和输入会去哪
             if split && !is_active {
@@ -668,6 +702,7 @@ impl VoiceGhosttyApp {
             pane.session.shared.neutral.store(window_focused && is_active && !split, Ordering::Relaxed);
         }
         ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
+        self.terminal_focused = any_focused;
         if let Some(id) = clicked {
             self.ws.focus_pane(id);
         }
@@ -698,6 +733,8 @@ impl eframe::App for VoiceGhosttyApp {
             self.confirm_quit = true;
         }
 
+        // 在任何控件改动焦点之前记下谁持有焦点:开始录音时据此决定结果落到终端还是文本框
+        self.focused_widget = ctx.memory(|m| m.focused());
         self.handle_shortcuts(&ctx);
         self.pump(&ctx);
         // 当前标签页之外的窗格:不是你正看着的,照常推进状态灯
