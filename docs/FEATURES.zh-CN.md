@@ -40,6 +40,7 @@
 | 引擎 | 说明 | 源文件 |
 |---|---|---|
 | `whisper`(内置) | whisper.cpp 进程内推理,编译时开启 feature `whisper`(CPU)或 `whisper-metal`(macOS GPU),需要 cmake 与 C++ 编译器。模型是 ggml 格式:`voice-model` 指定路径,否则取 `<配置目录>/models/` 里按名排序的第一个 `ggml-*.bin`。**全进程只载一次**,按模型路径缓存,换了路径才重载;推理用的 `WhisperState`(约 460 MB 的 KV cache 与 Metal 计算缓冲)同样只建一次反复复用,锁在整次识别期间持有。**按录音时长缩小 `audio_ctx`**:Whisper 不管说了多长都把音频补到 30 s 再算一遍编码器,延迟几乎全在这里;实际帧数(每秒 50 帧)+ 约 5 s 余量,向上取到 64 的倍数,夹在 [512, 1500] —— M3 上 4 s 语音约快 3 倍,下限 512 是因为更小的上下文会让解码器幻听、重复。开 flash attention;贪心解码、单段、不带跨段上下文;线程数 = min(核数, 8)。App 启动时后台**预载**模型,第一次说话不用等;退出前**显式释放**,否则 ggml 的 Metal 设备在 exit 时先析构会直接 abort。 | `crates/vg-voice/src/whisper.rs`、`crates/vg-voice/src/lib.rs` |
+| 一键下载模型 | 编进了 whisper、引擎是自动或 whisper、却没有模型(自动模式下也没有别的引擎可用)时,首次启动自动弹出下载窗口;点「以后再说」后不再自动弹(`model-prompt-dismissed`),状态栏胶囊变成「下载语音模型」、设置里的「whisper 模型」一行也能打开。四个可选模型:large-v3-turbo 量化版(574 MB,推荐)、large-v3-turbo(1.6 GB)、small(488 MB)、base(148 MB)。依次尝试 huggingface.co 与 hf-mirror.com;代理取环境变量,没有时在 macOS 上读 `scutil --proxy`(从 Finder 启动的 App 没有 shell 的环境变量),本机地址永远直连。先写 `<文件>.part`,HTTP Range 断点续传:传输中断时只要这次下到了东西就马上在同一个源上接着下,连续 3 次毫无进展才换源;阻塞版 reqwest 的超时作用于每一次读,30 s 收不到一个字节才算卡住,不会掐断长下载。校验长度与 ggml 魔数 `lmgg` 后才改名成正式文件,下到一半的 `.part` 永远不会被当成模型。完成后写进设置的 `voice-model` 并立即预载,不用重启。进度条显示已下 / 总量、速度、剩余时间与来源;可以取消(保留已下部分)或转到后台,状态栏胶囊显示百分比。 | `crates/vg-core/src/model_download.rs`、`crates/vg-app/src/model_ui.rs` |
 | `command`(外部命令) | `voice-command` 模板,`{wav}` 替换成 16 kHz 单声道 WAV 临时文件路径、`{lang}` 替换成识别语言(都按平台 shell 规则加引号),经 `sh -c`(Windows 用 `cmd /C`)执行,stdout 就是结果。例:`whisper-cli -m ~/models/ggml-base.bin -l {lang} -nt -f {wav}`。非零退出码报错并附 stderr 前 300 字。任何能从 WAV 读出文字的程序都能接。 | `crates/vg-voice/src/engine.rs` |
 | `http`(OpenAI 兼容) | `POST voice-api-url`(默认 `https://api.openai.com/v1/audio/transcriptions`)multipart:`model`、`response_format=json`、`file`、非 `auto` 时的 `language`、以及上面的提示词 `prompt`。Key 来自 `voice-api-key`,为空依次读 `VOICE_API_KEY`、`OPENAI_API_KEY`。地址指向本机(`127.0.0.1` / `localhost` / `[::1]` / `0.0.0.0`)时不需要 Key,且**绕过系统代理**直连。60 s 超时;错误信息从响应体的 `error.message` / `error` / `detail` 里取。OpenAI、Groq 等云服务和本机的 faster-whisper-server、speaches、whisper.cpp server 都走这个协议。 | `crates/vg-voice/src/engine.rs` |
 | `off` | 关闭语音,空格就是空格。 | — |
@@ -444,7 +445,7 @@ GUI 设置优先;没在 GUI 里设过的(`null`)回退配置文件。配置文�
 | `voice-api-key` | — | 不填则依次读 `$VOICE_API_KEY`、`$OPENAI_API_KEY` |
 | `voice-api-model` | `whisper-1` | HTTP 引擎的模型名 |
 | `voice-command` | — | 外部命令模板,`{wav}` `{lang}` 占位 |
-| `voice-model` | `<配置目录>/models/` 里第一个 `ggml-*.bin` | 内置 whisper 的 ggml 模型路径(支持 `~`) |
+| `voice-model` | `<配置目录>/models/` 里第一个 `ggml-*.bin` | 内置 whisper 的 ggml 模型路径(支持 `~`);用下载窗口下的模型记在设置里,优先于这里 |
 | `voice-device` | 系统默认 | 麦克风设备名 |
 | `voice-hold-ms` | `250` | 按住说话键多久算「按住说话」 |
 | `voice-ptt-key` | `Space` | 说话键(egui 按键名:`Space`、`Insert`、`F13`…) |

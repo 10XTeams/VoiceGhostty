@@ -450,14 +450,35 @@ impl VoiceGhosttyApp {
                 }
             }
             VoiceUi::Unconfigured(why) => {
+                // 下载模型就能解决的(编进了 whisper、只差模型):直接给下载入口,下载中显示进度
+                let downloading = self.model_download_progress();
+                let fixable = vg_voice::needs_model(&self.config.voice);
                 let resp = capsule(ui, h, |ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(14.0, h), Sense::hover());
-                    icons::paint(ui.painter(), r, 14.0, Icon::Alert, p.warn);
-                    ui.label(RichText::new("还没有可用的语音引擎").color(p.warn));
-                    ui.label(RichText::new("去设置").font(style::small()).color(p.text3));
+                    match (&downloading, fixable) {
+                        (Some(progress), _) => {
+                            icons::paint(ui.painter(), r, 14.0, Icon::Mic, p.accent);
+                            ui.label(RichText::new(progress).color(p.text2));
+                        }
+                        (None, true) => {
+                            icons::paint(ui.painter(), r, 14.0, Icon::Mic, p.accent);
+                            ui.label(RichText::new("下载语音模型").color(p.accent));
+                            ui.label(RichText::new("一次即可,本机离线识别").font(style::small()).color(p.text3));
+                        }
+                        (None, false) => {
+                            icons::paint(ui.painter(), r, 14.0, Icon::Alert, p.warn);
+                            ui.label(RichText::new("还没有可用的语音引擎").color(p.warn));
+                            ui.label(RichText::new("去设置").font(style::small()).color(p.text3));
+                        }
+                    }
                 });
-                if resp.on_hover_text(why).clicked() {
-                    self.show_settings = true;
+                let tip = if downloading.is_some() || fixable { "点开下载窗口".to_string() } else { why };
+                if resp.on_hover_text(tip).clicked() {
+                    if downloading.is_some() || fixable {
+                        self.show_model_dialog = true;
+                    } else {
+                        self.show_settings = true;
+                    }
                 }
             }
             VoiceUi::Off => {

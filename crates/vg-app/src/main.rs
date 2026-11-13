@@ -6,6 +6,7 @@ mod hotkey;
 mod icons;
 mod kit;
 mod loader_panel;
+mod model_ui;
 #[cfg(target_os = "macos")]
 mod macos;
 mod monitor;

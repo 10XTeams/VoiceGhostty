@@ -83,6 +83,12 @@ pub struct VoiceGhosttyApp {
     status: Status,
     font_size: f32,
     pub(crate) show_settings: bool,
+    /// 「下载语音模型」浮窗;首次启动没有可用引擎时自动打开
+    pub(crate) show_model_dialog: bool,
+    /// 浮窗里选中的模型(`vg_core::model_download::MODELS` 的下标)
+    pub(crate) model_choice: usize,
+    /// 正在进行(或刚失败 / 取消)的模型下载
+    pub(crate) model_download: Option<vg_core::model_download::Download>,
     pub(crate) monitor: Monitor,
     loader: LoaderPanel,
     show_loader: bool,
@@ -157,6 +163,9 @@ impl VoiceGhosttyApp {
             pipeline: Pipeline::new(),
             status: Status::default(),
             show_settings: false,
+            show_model_dialog: false,
+            model_choice: 0,
+            model_download: None,
             loader: LoaderPanel::default(),
             show_loader: false,
             pending_commands: VecDeque::new(),
@@ -186,6 +195,8 @@ impl VoiceGhosttyApp {
             preview_voice: None,
         };
         app.sync_global_hotkey(&cc.egui_ctx);
+        // 首次启动:编进了 whisper 却没有模型、也没有别的引擎可用,直接问要不要下载
+        app.show_model_dialog = vg_voice::needs_model(&app.config.voice) && !app.settings.model_prompt_dismissed;
         let first_cwd = app.settings.default_dir.clone();
         if let Some(pane) = app.spawn_pane(&cc.egui_ctx, first_cwd) {
             app.ws.add_tab(pane);
@@ -868,6 +879,10 @@ impl eframe::App for VoiceGhosttyApp {
         }
         if self.new_project.is_some() {
             self.new_project_dialog(&ctx);
+        }
+        self.finish_model_download(&ctx);
+        if self.show_model_dialog {
+            self.model_dialog(&ctx);
         }
     }
 }

@@ -239,3 +239,77 @@ fn drag_divider_resizes_and_zoom_toggles() {
     drop(h);
     vg_voice::shutdown();
 }
+
+/// 「下载语音模型」浮窗:截图看选择 / 进度 / 取消三个状态,走真实网络(含系统代理)下载 base 模型的一段。
+/// 完整下载、断点续传、换源由 vg-core 的本机服务器测试覆盖;这里验证真实下载源和界面。
+/// 会把 HOME 指到 VG_SHOTS 下的临时目录,不碰你的真实模型目录和设置。重复运行会接着上次的 .part 下。
+///   VG_SHOTS=/tmp/shots cargo test -p vg-app model_download_shots -- --ignored --nocapture
+#[test]
+#[ignore]
+fn model_download_shots() {
+    use vg_core::model_download::Phase;
+    let Some(dir) = std::env::var_os("VG_SHOTS").map(PathBuf::from) else {
+        eprintln!("skipped: set VG_SHOTS=<dir>");
+        return;
+    };
+    let home = dir.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    // 这个测试只单独运行(#[ignore] + 名字过滤),没有别的线程在读环境变量
+    std::env::set_var("HOME", &home);
+    let part = home.join(".config/voiceghostty/models/ggml-base.bin.part");
+    let had = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+
+    let mut h = Harness::builder()
+        .with_size(SIZE)
+        .with_pixels_per_point(2.0)
+        .wgpu()
+        .build_eframe(|cc| {
+            let mut app = VoiceGhosttyApp::new(cc);
+            app.settings.save_history = false;
+            app
+        });
+    // 编进了 whisper 时,空的 HOME(没有模型)启动就该自动弹出;没编进来时手动打开看界面
+    if vg_voice::HAS_WHISPER {
+        assert!(h.state().show_model_dialog, "首次启动没有模型,应自动弹出下载窗口");
+    }
+    h.state_mut().show_model_dialog = true;
+    h.state_mut().model_choice = 3; // base,148 MB
+    settle(&mut h, Duration::from_millis(500));
+    save(&mut h, &dir, "model-1-choose");
+
+    h.input_mut().events.push(egui::Event::Key {
+        key: egui::Key::Enter,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    let started = std::time::Instant::now();
+    let mut first_seen = None;
+    loop {
+        settle(&mut h, Duration::from_millis(250));
+        let phase = h.state().model_download.as_ref().map(|d| d.phase());
+        if let Some(Phase::Downloading { done, .. }) = phase {
+            let first = *first_seen.get_or_insert(done);
+            if done >= first + 1_000_000 {
+                break;
+            }
+        }
+        if let Some(Phase::Failed(e)) = &phase {
+            panic!("download failed: {e}");
+        }
+        assert!(started.elapsed() < Duration::from_secs(180), "no progress: {phase:?}");
+    }
+    let first = first_seen.unwrap();
+    eprintln!("had {had} bytes on disk; first progress report at {first}");
+    assert!(first >= had, "应接着已有的 {had} 字节下,而不是从头开始(首次报告 {first})");
+    save(&mut h, &dir, "model-2-progress");
+
+    h.state().model_download.as_ref().unwrap().cancel();
+    settle(&mut h, Duration::from_secs(1));
+    assert_eq!(h.state().model_download.as_ref().map(|d| d.phase()), Some(Phase::Cancelled));
+    assert!(std::fs::metadata(&part).unwrap().len() > had, "取消后已下载的部分保留");
+    save(&mut h, &dir, "model-3-cancelled");
+    drop(h);
+    vg_voice::shutdown();
+}

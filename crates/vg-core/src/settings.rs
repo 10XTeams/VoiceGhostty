@@ -30,6 +30,10 @@ pub struct Settings {
     pub voice_commands: Option<bool>,
     /// 个人词典(设置面板维护);None 时用配置文件里的 voice-replace
     pub voice_replacements: Option<Vec<(String, String)>>,
+    /// 一键下载的 whisper 模型,覆盖 voice-model。文件不在了就当没设,回到按目录找
+    pub voice_model: Option<PathBuf>,
+    /// 首次启动「下载语音模型」的提示点过「以后再说」,不再自动弹出(状态栏仍可点开)
+    pub model_prompt_dismissed: bool,
     /// 覆盖 scrollback
     pub scrollback: Option<usize>,
     /// 每个窗格的会话记录是否写入文件
@@ -65,6 +69,8 @@ impl Default for Settings {
             ptt_key: None,
             voice_commands: None,
             voice_replacements: None,
+            voice_model: None,
+            model_prompt_dismissed: false,
             scrollback: None,
             save_history: true,
             input_color: "#5CC8FF".into(),
@@ -139,6 +145,9 @@ impl Settings {
         }
         if let Some(rules) = &self.voice_replacements {
             config.voice.replacements = rules.clone();
+        }
+        if let Some(model) = self.voice_model.as_ref().filter(|p| p.is_file()) {
+            config.voice.model_path = Some(model.clone());
         }
         if let Some(n) = self.scrollback {
             config.scrollback = clamp_scrollback(n);

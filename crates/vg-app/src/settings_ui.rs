@@ -42,6 +42,22 @@ impl VoiceGhosttyApp {
                             }
                         });
                     });
+                    if vg_voice::HAS_WHISPER {
+                        kit::hairline(ui);
+                        let model = match (self.model_download_progress(), self.config.voice.resolved_model()) {
+                            (Some(progress), _) => progress,
+                            (None, Some(path)) => {
+                                let size = std::fs::metadata(&path).map(|m| vg_core::model_download::human_bytes(m.len())).unwrap_or_default();
+                                format!("{} · {size}", path.file_name().unwrap_or_default().to_string_lossy())
+                            }
+                            (None, None) => "还没有模型,内置 whisper 用不了".to_string(),
+                        };
+                        kit::setting_row(ui, "whisper 模型", Some(&model), |ui| {
+                            if kit::button(ui, "下载模型…", kit::Kind::Secondary, true).clicked() {
+                                self.show_model_dialog = true;
+                            }
+                        });
+                    }
                     kit::hairline(ui);
                     kit::setting_row(ui, "识别语言", None, |ui| {
                         let lang = self.config.voice.language.clone();

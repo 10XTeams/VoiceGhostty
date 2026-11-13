@@ -152,7 +152,15 @@ curl -L -o ~/.config/voiceghostty/models/ggml-large-v3-turbo.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
 ```
 
-Model choice: `base` (~150MB) is good for English; for Chinese use `small` or larger, or `large-v3-turbo` (~1.6GB).
+Model choice: `base` (~150MB) is good for English; for Chinese use `small` or larger. The download window
+recommends the quantized `large-v3-turbo` (~574MB, nearly as accurate as the full ~1.6GB one).
+
+You rarely need the commands above: on first launch with no model, a **download window** opens — pick a model and
+click Download; it is usable as soon as it finishes, no restart. It tries huggingface.co and then the hf-mirror.com
+mirror, uses your proxy (environment variables, or the macOS system proxy), reconnects and resumes after network
+drops, and can keep going in the background. Reopen it any time from the voice capsule in the status bar or
+Settings → whisper model. With several models in the folder, the first by name wins; a model downloaded through the
+window is recorded in settings and takes precedence.
 
 **External command.** Anything that turns a WAV file into text. `{wav}` becomes the path of a 16 kHz mono
 WAV temp file, `{lang}` the recognition language; stdout is the transcript:
@@ -282,7 +290,7 @@ then `scripts/release-cask.sh` updates the Homebrew cask.
 - [x] Dynamic Claude Code skill, agent and plugin loading
 - [x] zsh integration: status lights, done chime, colored input line, cwd-derived tab titles
 - [x] Session transcripts on disk, Claude context usage display
-- [ ] One-click whisper model download on first launch
+- [x] One-click whisper model download on first launch
 - [ ] English UI
 - [ ] Prebuilt Linux / Windows packages
 - [ ] Command-context awareness, dangerous-command tiering, voice edits, TTS readback

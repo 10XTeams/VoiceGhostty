@@ -136,7 +136,9 @@ cargo test --workspace
 
 识别结果只上屏,不自动回车。`voice-engine = auto` 的选择顺序:内置 whisper(编译进来且有模型)→ 外部命令 → API Key → 指向本机的 HTTP 地址。
 
-**内置 whisper(本地离线,推荐)。** 把 whisper.cpp 的模型文件(`ggml-*.bin`)放到 `~/.config/voiceghostty/models/`,或者用 `voice-model = <路径>` 指定。模型在启动时后台载入,第一次说话不用等。
+**内置 whisper(本地离线,推荐)。** 第一次启动时如果还没有模型,会弹出**下载窗口**:选一个模型点「下载」即可,下完立即可用、不用重启。
+下载会依次尝试 huggingface.co 与国内镜像 hf-mirror.com,自动走环境变量或 macOS 系统代理,断网后自动重连并断点续传;也可以点「后台下载」继续用终端。
+之后随时可以从状态栏的语音胶囊或「设置 → whisper 模型」打开它。想手动放也行:把 whisper.cpp 的模型文件(`ggml-*.bin`)放到 `~/.config/voiceghostty/models/`,或者用 `voice-model = <路径>` 指定。模型在启动时后台载入,第一次说话不用等。
 
 ```bash
 mkdir -p ~/.config/voiceghostty/models
@@ -144,7 +146,8 @@ curl -L -o ~/.config/voiceghostty/models/ggml-large-v3-turbo.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
 ```
 
-模型选择:`base` 约 150MB,英文效果很好;中文建议 `small` 以上,或 `large-v3-turbo`(约 1.6GB)。
+模型选择:`base` 约 150MB,英文效果很好;中文建议 `small` 以上,下载窗口默认推荐 `large-v3-turbo` 的量化版(约 574MB,和完整版差不多准)。
+模型目录里放了多个时,取按文件名排序的第一个;用下载窗口下的模型会记进设置,以它为准。
 
 **外部命令。** 任何能从 WAV 文件读出文字的程序都可以接进来,`{wav}` 替换成 16 kHz 单声道 WAV 临时文件路径,`{lang}` 替换成识别语言,stdout 就是识别结果:
 
@@ -255,7 +258,7 @@ VoiceGhostty 会在 `~/.config/voiceghostty/shell-rs/` 生成一层 ZDOTDIR 包�
 - [x] Claude Code 技能、Agent、插件动态加载
 - [x] zsh 集成:状态灯、完成提示音、输入行着色、标签名跟随工作目录
 - [x] 会话记录落盘、Claude 上下文占用显示
-- [ ] 首次启动一键下载 whisper 模型
+- [x] 首次启动一键下载 whisper 模型
 - [ ] 英文界面
 - [ ] Linux / Windows 预编译包
 - [ ] 命令上下文感知、危险命令分级、语音修正、TTS 朗读

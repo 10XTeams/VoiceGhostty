@@ -17,6 +17,18 @@ pub use clip::AudioClip;
 pub use engine::{echoes_prompt, is_hallucination, CommandEngine, HttpEngine, SpeechEngine, TranscribeOptions};
 pub use recorder::{input_devices, LiveAudio, Recorder};
 
+/// 这个构建里编进了内置 whisper(`--features whisper`)。没编进来时下载模型没有意义
+pub const HAS_WHISPER: bool = cfg!(feature = "whisper");
+
+/// 用户能靠「下载一个模型」解决的情况:编进了 whisper、引擎是自动或 whisper,但没有可用的模型,
+/// 而且自动模式下也没有别的引擎可用
+pub fn needs_model(cfg: &VoiceConfig) -> bool {
+    HAS_WHISPER
+        && matches!(cfg.engine, VoiceEngineKind::Auto | VoiceEngineKind::Whisper)
+        && cfg.resolved_model().is_none()
+        && build_engine(cfg).is_err()
+}
+
 /// 录音短于这个时长直接丢弃(误触空格)
 pub const MIN_SPEECH_SECS: f32 = 0.3;
 
