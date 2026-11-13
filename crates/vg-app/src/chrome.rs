@@ -46,7 +46,8 @@ impl VoiceGhosttyApp {
                     .filter_map(|id| self.ws.panes.get(id))
                     .map(|p| p.session.shared.status())
                     .collect();
-                let lit: Vec<SessionStatus> = statuses.iter().copied().filter(|s| *s != SessionStatus::Normal).collect();
+                // 每个窗格一个点,空闲也画(蓝)
+                let lit = statuses;
                 let title = widgets::truncate(&self.tab_title(i), 26);
 
                 let title_font = crate::fonts::medium(style::TAB);
@@ -567,6 +568,7 @@ impl VoiceGhosttyApp {
         let mut launch = None;
         let mut remove = None;
         let mut add = false;
+        let mut create = false;
         let resp = kit::icon_button(ui, Icon::Sparkle, false, "常用项目:进入目录并启动 Claude");
         egui::Popup::menu(&resp).width(260.0).gap(6.0).show(|ui| {
             ui.spacing_mut().item_spacing.y = 2.0;
@@ -615,12 +617,26 @@ impl VoiceGhosttyApp {
                 add = true;
                 ui.close();
             }
+            let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
+            if resp.hovered() {
+                ui.painter().rect_filled(row, 6.0, p.hover);
+            }
+            let icon_rect = Rect::from_center_size(pos2(row.min.x + 14.0, row.center().y), vec2(16.0, 16.0));
+            icons::paint(ui.painter(), icon_rect, 14.0, Icon::Folder, p.accent);
+            ui.painter().text(pos2(row.min.x + 30.0, row.center().y), Align2::LEFT_CENTER, "新建项目…", style::body(), p.accent);
+            let root = self.settings.projects_root();
+            if resp.on_hover_text(format!("在 {} 下新建文件夹,加入常用项目并启动 Claude", vg_core::loader::tilde(&root))).clicked() {
+                create = true;
+                ui.close();
+            }
         });
 
         if let Some(dir) = launch {
-            if let Some(s) = self.active_session() {
-                s.write(vg_core::shell::launch_claude_command(&dir).into_bytes());
-            }
+            self.launch_claude_in(&dir);
+        }
+        if create {
+            self.new_project = Some(String::new());
+            self.new_project_focus = true;
         }
         if let Some(dir) = remove {
             self.settings.claude_dirs.retain(|d| *d != dir);
@@ -635,6 +651,91 @@ impl VoiceGhosttyApp {
                     let _ = self.settings.save();
                 }
             }
+        }
+    }
+
+    /// 在当前活动窗格里 `cd <dir> && claude`
+    fn launch_claude_in(&self, dir: &std::path::Path) {
+        if let Some(s) = self.active_session() {
+            s.write(vg_core::shell::launch_claude_command(dir).into_bytes());
+        }
+    }
+
+    /// 「新建项目」浮窗:在项目目录下建文件夹 → 加入常用项目 → 当前窗格启动 Claude
+    pub(crate) fn new_project_dialog(&mut self, ctx: &egui::Context) {
+        let p = palette(ctx);
+        let root = self.settings.projects_root();
+        let frame = egui::Frame::NONE
+            .fill(p.surface)
+            .stroke(Stroke::new(1.0, p.border))
+            .corner_radius(14)
+            .shadow(ctx.global_style().visuals.window_shadow)
+            .inner_margin(22);
+        let mut confirm = false;
+        let mut cancel = false;
+        egui::Modal::new(egui::Id::new("new-project")).frame(frame).backdrop_color(Color32::from_black_alpha(110)).show(ctx, |ui| {
+            ui.set_width(380.0);
+            ui.label(RichText::new("新建项目").font(crate::fonts::semibold(16.0)).color(p.text));
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(format!("在 {} 下新建文件夹,加入常用项目,并在当前窗格启动 Claude。父目录可在设置里改。", vg_core::loader::tilde(&root)))
+                    .font(style::small())
+                    .color(p.text2),
+            );
+            ui.add_space(12.0);
+            let draft = self.new_project.get_or_insert_with(String::new);
+            let edit = ui.add_sized(
+                vec2(ui.available_width(), 28.0),
+                egui::TextEdit::singleline(draft).hint_text("项目名(文件夹名)").margin(vec2(8.0, 4.0)),
+            );
+            // 刚打开时把焦点从终端拿过来;之后不再抢,免得用户点别处又被拉回来
+            if self.new_project_focus || ui.ctx().memory(|m| m.focused().is_none()) {
+                edit.request_focus();
+                self.new_project_focus = false;
+            }
+            let name = draft.trim().to_string();
+            let valid = !name.is_empty() && name != "." && name != ".." && !name.contains(['/', '\\']);
+            let preview = if valid { Some(vg_core::loader::tilde(&root.join(&name))) } else { None };
+            ui.add_space(6.0);
+            let note = match (&preview, name.is_empty()) {
+                (Some(path), _) => RichText::new(path).font(style::small()).color(p.text3),
+                (None, true) => RichText::new(" ").font(style::small()),
+                (None, false) => RichText::new("名字不能含 / 或 \\,也不能是 . 或 ..").font(style::small()).color(p.error),
+            };
+            ui.add(egui::Label::new(note).truncate());
+            ui.add_space(16.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if kit::button(ui, "创建并启动", kit::Kind::Primary, valid).clicked() || (valid && ui.input(|i| i.key_pressed(Key::Enter))) {
+                    confirm = true;
+                }
+                if kit::button(ui, "取消", kit::Kind::Secondary, true).clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                    cancel = true;
+                }
+            });
+        });
+        if cancel {
+            self.new_project = None;
+        } else if confirm {
+            let name = self.new_project.take().unwrap_or_default();
+            self.create_project(&root, &name);
+        }
+    }
+
+    fn create_project(&mut self, root: &std::path::Path, name: &str) {
+        match vg_core::settings::create_project_dir(root, name) {
+            Ok((dir, created)) => {
+                if !self.settings.claude_dirs.contains(&dir) {
+                    self.settings.claude_dirs.push(dir.clone());
+                    if let Err(e) = self.settings.save() {
+                        self.set_status(format!("设置保存失败:{e}"), true);
+                    }
+                }
+                self.launch_claude_in(&dir);
+                let shown = vg_core::loader::tilde(&dir);
+                let msg = if created { format!("已新建 {shown},加入常用项目并启动 Claude") } else { format!("{shown} 已存在,加入常用项目并启动 Claude") };
+                self.set_status(msg, false);
+            }
+            Err(e) => self.set_status(e, true),
         }
     }
 

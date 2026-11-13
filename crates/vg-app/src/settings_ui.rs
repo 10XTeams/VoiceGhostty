@@ -172,6 +172,32 @@ impl VoiceGhosttyApp {
                         }
                     });
                     kit::hairline(ui);
+                    kit::setting_row(ui, "项目目录", Some("✨ 常用项目里「新建项目」在这里建文件夹;没设就用默认文件夹"), |ui| {
+                        let current = self.settings.projects_dir.clone();
+                        let shown = current
+                            .as_deref()
+                            .map(vg_core::loader::tilde)
+                            .unwrap_or_else(|| format!("同默认文件夹({})", vg_core::loader::tilde(&self.settings.projects_root())));
+                        let full = current.as_deref().map(|d| d.display().to_string()).unwrap_or_default();
+                        if current.is_some()
+                            && kit::icon_button_sized(ui, Icon::Close, false, 26.0, 13.0).on_hover_text("恢复为跟随默认文件夹").clicked()
+                        {
+                            self.settings.projects_dir = None;
+                            changed = true;
+                        }
+                        if kit::icon_button_sized(ui, Icon::Folder, false, 26.0, 13.0).on_hover_text("选择文件夹").clicked() {
+                            let start = self.settings.projects_root();
+                            if let Some(picked) = rfd::FileDialog::new().set_title("选择新建项目的父目录").set_directory(start).pick_folder() {
+                                self.settings.projects_dir = Some(picked);
+                                changed = true;
+                            }
+                        }
+                        let label = ui.add(egui::Label::new(RichText::new(shown).font(style::small()).color(p.text2)).truncate());
+                        if !full.is_empty() {
+                            label.on_hover_text(full);
+                        }
+                    });
+                    kit::hairline(ui);
                     kit::setting_row(ui, "历史行数", Some("每个窗格保留多少行滚出屏幕的输出"), |ui| {
                         let mut lines = self.config.scrollback;
                         let drag = egui::DragValue::new(&mut lines).range(SCROLLBACK_RANGE).speed(100.0).suffix(" 行");

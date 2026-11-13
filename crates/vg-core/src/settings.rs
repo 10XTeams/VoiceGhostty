@@ -2,7 +2,7 @@
 //! 与只读配置文件共有的 key,GUI 设置优先;`None` 表示"没在 GUI 里设过",回退配置文件。
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -48,6 +48,8 @@ pub struct Settings {
     pub claude_dirs: Vec<PathBuf>,
     /// 新标签页(⌘T)和启动时第一个窗格的起始目录;None 为家目录。分屏不用它,跟随原窗格
     pub default_dir: Option<PathBuf>,
+    /// 常用项目菜单「新建项目」在哪个目录下建文件夹;None 时用 default_dir,再没有就家目录
+    pub projects_dir: Option<PathBuf>,
     /// 窗格列表侧边栏是否展开(⌘B)
     pub show_sidebar: bool,
 }
@@ -72,6 +74,7 @@ impl Default for Settings {
             loader_groups_collapsed: BTreeSet::new(),
             claude_dirs: Vec::new(),
             default_dir: None,
+            projects_dir: None,
             show_sidebar: false,
         }
     }
@@ -101,6 +104,14 @@ impl Settings {
     pub fn write_input_color_file(&self) -> std::io::Result<()> {
         std::fs::create_dir_all(config_dir())?;
         std::fs::write(Self::input_color_file(), format!("{}\n", self.input_color))
+    }
+
+    /// 新建项目的父目录:项目目录 → 默认文件夹 → 家目录
+    pub fn projects_root(&self) -> PathBuf {
+        self.projects_dir
+            .clone()
+            .or_else(|| self.default_dir.clone())
+            .unwrap_or_else(crate::paths::home_dir)
     }
 
     /// 把 GUI 设置叠加到配置文件之上,得到最终生效的配置
@@ -136,6 +147,27 @@ impl Settings {
             config.skill_library_dirs = dedupe(dirs);
         }
     }
+}
+
+/// 在 `root` 下新建名为 `name` 的项目目录。返回 (完整路径, 是否新建的);目录已存在不算错,
+/// 直接沿用。名字只能是单层文件夹名:不能为空、不能含路径分隔符、不能是 `.` / `..`
+pub fn create_project_dir(root: &Path, name: &str) -> Result<(PathBuf, bool), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("请输入项目名".into());
+    }
+    if name == "." || name == ".." || name.contains(['/', '\\', '\0']) {
+        return Err("项目名不能含 / 或 \\,也不能是 . 或 ..".into());
+    }
+    let dir = root.join(name);
+    if dir.is_dir() {
+        return Ok((dir, false));
+    }
+    if dir.exists() {
+        return Err(format!("{} 已存在,但不是文件夹", dir.display()));
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建 {} 失败:{e}", dir.display()))?;
+    Ok((dir, true))
 }
 
 pub fn clamp_scrollback(n: usize) -> usize {
@@ -180,5 +212,32 @@ mod tests {
         assert_eq!(c.voice.engine, VoiceEngineKind::Http);
         assert_eq!(c.scrollback, 500);
         assert_eq!(c.skill_library_dirs, vec![PathBuf::from("/a")]);
+    }
+
+    #[test]
+    fn projects_root_falls_back() {
+        let mut s = Settings::default();
+        assert_eq!(s.projects_root(), crate::paths::home_dir());
+        s.default_dir = Some("/d".into());
+        assert_eq!(s.projects_root(), PathBuf::from("/d"));
+        s.projects_dir = Some("/p".into());
+        assert_eq!(s.projects_root(), PathBuf::from("/p"));
+    }
+
+    #[test]
+    fn creates_project_dir_and_rejects_bad_names() {
+        let root = std::env::temp_dir().join(format!("vg-proj-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for bad in ["", "  ", ".", "..", "a/b", "a\\b"] {
+            assert!(create_project_dir(&root, bad).is_err(), "{bad:?}");
+        }
+        let (dir, created) = create_project_dir(&root, " demo ").unwrap();
+        assert_eq!(dir, root.join("demo"));
+        assert!(created && dir.is_dir());
+        // 第二次:已存在,沿用而不报错
+        assert_eq!(create_project_dir(&root, "demo").unwrap(), (dir.clone(), false));
+        std::fs::write(root.join("file"), b"x").unwrap();
+        assert!(create_project_dir(&root, "file").is_err());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

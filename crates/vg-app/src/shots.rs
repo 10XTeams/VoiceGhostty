@@ -105,6 +105,11 @@ fn shots() {
 
     h.state_mut().confirm_quit = false;
 
+    h.state_mut().new_project = Some("my-new-app".into());
+    settle(&mut h, Duration::from_millis(400));
+    save(&mut h, &dir, "07b-new-project");
+    h.state_mut().new_project = None;
+
     for theme in ["light", "dracula"] {
         h.state_mut().config.theme_name = theme.into();
         let t = h.state().config.theme();
@@ -117,6 +122,29 @@ fn shots() {
     settle(&mut h, Duration::from_millis(400));
     save(&mut h, &dir, "09-settings-dracula");
     // kittest 不调 on_exit:手动释放 whisper 模型,否则 Metal 后端在进程退出时 abort
+    drop(h);
+    vg_voice::shutdown();
+}
+
+/// 回归:「新建项目」浮窗打开后,键盘输入要进输入框,而不是被终端窗格抢走
+#[test]
+fn new_project_dialog_takes_keyboard() {
+    let mut h = Harness::builder().with_size(SIZE).build_eframe(|cc| {
+        let mut app = VoiceGhosttyApp::new(cc);
+        app.settings.save_history = false;
+        app
+    });
+    for _ in 0..3 {
+        h.step();
+    }
+    assert!(h.ctx.memory(|m| m.focused()).is_some(), "终端窗格起来后应持有焦点");
+    h.state_mut().new_project = Some(String::new());
+    h.state_mut().new_project_focus = true;
+    h.step();
+    h.input_mut().events.push(egui::Event::Text("demo".into()));
+    h.step();
+    h.step();
+    assert_eq!(h.state().new_project.as_deref(), Some("demo"));
     drop(h);
     vg_voice::shutdown();
 }

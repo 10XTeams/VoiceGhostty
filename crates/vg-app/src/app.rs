@@ -93,6 +93,10 @@ pub struct VoiceGhosttyApp {
     search_note: Option<String>,
     /// 正在改名的标签页(下标, 草稿)
     renaming: Option<(usize, String)>,
+    /// 常用项目「新建项目」浮窗里的名字草稿;None 表示没开
+    new_project: Option<String>,
+    /// 下一帧把焦点交给「新建项目」的输入框(刚打开时)
+    new_project_focus: bool,
     show_help: bool,
     confirm_quit: bool,
     quit_confirmed: bool,
@@ -159,6 +163,8 @@ impl VoiceGhosttyApp {
             search_focus: false,
             search_note: None,
             renaming: None,
+            new_project: None,
+            new_project_focus: false,
             show_help: false,
             confirm_quit: false,
             quit_confirmed: false,
@@ -676,8 +682,8 @@ impl VoiceGhosttyApp {
         self.monitor.window_focused.store(window_focused, Ordering::Relaxed);
         let theme = self.config.theme();
         let p = style::palette(ui.ctx());
-        // 键盘焦点归终端,除非搜索框或改名框在用
-        let terminal_owns_keyboard = !self.search_open && self.renaming.is_none();
+        // 键盘焦点归终端,除非搜索框、改名框或「新建项目」浮窗在用
+        let terminal_owns_keyboard = !self.search_open && self.renaming.is_none() && self.new_project.is_none();
 
         let ptt_key = self.ptt_key();
         let mut clicked = None;
@@ -798,6 +804,9 @@ impl eframe::App for VoiceGhosttyApp {
         }
         if self.confirm_quit {
             self.quit_dialog(&ctx);
+        }
+        if self.new_project.is_some() {
+            self.new_project_dialog(&ctx);
         }
     }
 }

@@ -135,7 +135,7 @@ Source: `crates/vg-core/src/nl2command.rs` (`strip_newlines`), `crates/vg-app/sr
 | Switch | <kbd>⌘⇧]</kbd> / <kbd>⌘⇧[</kbd> cycle (wrapping around), <kbd>⌘1</kbd>…<kbd>⌘8</kbd> jump, <kbd>⌘9</kbd> last tab (Ghostty-compatible). |
 | Smart titles | The tab name is derived from each pane's **current directory** (home shown as `~`, split panes joined with `-`). The directory does not rely on shell integration: the shell process's cwd is asked of the OS (`proc_pidinfo` on macOS, `/proc/<pid>/cwd` on Linux), refreshed by the monitor thread every 0.5 s; when the lookup fails the previous value is kept so the title never flickers back. Without a directory the terminal title is used; with no panes, `shell`. The window title is "<active pane's terminal title> — VoiceGhostty". |
 | Rename | Double-click a tab to set a custom name; <kbd>Esc</kbd> cancels, <kbd>Return</kbd> or blur commits, an empty name restores the derived title. |
-| Chrome | Per tab: index number, status dots (only non-grey ones, at most 4; busy pulses, done glows), title (cut to 26 characters), close button (always on the active tab, on hover elsewhere); width clamped to 120–240; hovering lists the panes' terminal titles; a trailing `+` creates a tab. A hairline along the bottom breaks under the active tab so tab and terminal read as one surface. |
+| Chrome | Per tab: index number, status dots (one per pane, at most 4; busy pulses, done glows), title (cut to 26 characters), close button (always on the active tab, on hover elsewhere); width clamped to 120–240; hovering lists the panes' terminal titles; a trailing `+` creates a tab. A hairline along the bottom breaks under the active tab so tab and terminal read as one surface. |
 
 Source: `crates/vg-app/src/workspace.rs`, `crates/vg-app/src/chrome.rs` (`tab_bar`), `crates/vg-app/src/app.rs` (`tab_title`)
 
@@ -179,11 +179,11 @@ Source: `crates/vg-app/src/split.rs`, `crates/vg-app/src/workspace.rs`, `crates/
 
 ## 8. Status lights (busy / done / waiting) and the pane list
 
-A four-state dot — grey (idle), yellow (running), green (finished, your turn), **orange (stuck waiting for your input)** — on every tab; when split, one dot
-per non-grey pane in visual order, up to 4, so the tab bar says *which* pane is waiting for you rather than only that
+A four-state dot — blue (idle), yellow (running), green (finished, your turn), **orange (stuck waiting for your input)** — on every tab; when split, one dot
+per pane in visual order, up to 4, so the tab bar says *which* pane is waiting for you rather than only that
 one of them is.
 
-- **Waiting (orange).** The command is still running, has been quiet for ≥ 2 s, and the dozen lines around the cursor contain something that reads like a question — Claude Code's "Do you want to…", "Yes, and don't ask again", "Esc to cancel", generic `[y/N]` `(yes/no)` `continue?`, `Password:`, Chinese 「是否继续」「请输入」 and so on (the list lives in `status::looks_like_prompt` and errs on the quiet side). This used to show as "done" or stay yellow forever; now it is orange and **chimes** (a quiet TUI normally does not chime, but a visible question is hard evidence). Once you answer and output resumes it goes back to yellow. Aggregate priority: orange > green > yellow > grey. The monitor thread reads the screen only while a command is running, every 0.5 s — cheap.
+- **Waiting (orange).** The command is still running, has been quiet for ≥ 2 s, and the dozen lines around the cursor contain something that reads like a question — Claude Code's "Do you want to…", "Yes, and don't ask again", "Esc to cancel", generic `[y/N]` `(yes/no)` `continue?`, `Password:`, Chinese 「是否继续」「请输入」 and so on (the list lives in `status::looks_like_prompt` and errs on the quiet side). This used to show as "done" or stay yellow forever; now it is orange and **chimes** (a quiet TUI normally does not chime, but a visible question is hard evidence). Once you answer and output resumes it goes back to yellow. Aggregate priority: orange > green > yellow > blue. The monitor thread reads the screen only while a command is running, every 0.5 s — cheap.
 - **Pane list sidebar.** <kbd>⌘B</kbd> (<kbd>Ctrl+Shift+B</kbd> on Linux / Windows) or the sidebar button in the status bar; the open state is persisted in `settings.json`. A column on the left: one group per tab (number + title, click to switch tabs) listing each of its panes with status dot, folder name and a status word on the right (running / done / waiting for you); hover for the terminal title; click a row to jump straight to that pane. With many tabs and splits, finding the orange one here beats scanning the tab-bar dots.
 
 - **Precise mode.** Once a command boundary written by shell integration has been seen, it drives the light: command
@@ -204,7 +204,7 @@ one of them is.
   silent for ≥ 2 s", counts as done; recent output counts as busy.
 - The single pane you are actively using stays neutral — a terminal never nags you with its own light — but
   only while VoiceGhostty is in front and that tab is not split. Sent to the background, that pane advances like any
-  other, since its finish is exactly what you left to wait for; coming back to the front resets it to grey. In a
+  other, since its finish is exactly what you left to wait for; coming back to the front resets it to blue. In a
   split, every pane reports independently; panes in other tabs always advance.
 - **Chime on green** (Settings → Terminal → Done chime, on by default, with a ▶ preview next to it). No audio file
   and no system sound: it is synthesized live on a cpal output stream — three partials (E6 / B6 / E7) with exponential
@@ -429,7 +429,13 @@ escaped, so spaces are safe; PowerShell's `''` escaping on Windows). Entries sho
 hover and a trash button to remove them individually, and persist in `settings.json` under `claude-dirs`. The menu lists
 them by lowercased folder name; the stored array keeps its insertion order, and adding a directory twice is ignored.
 
-Source: `crates/vg-app/src/chrome.rs` (`projects_menu`), `crates/vg-core/src/shell.rs` (`launch_claude_command`, `quote`)
+The menu also ends with "New project…": a dialog asks for a folder name; Return (or "Create & launch") creates that folder
+under the **projects directory**, adds it to the favourites and immediately runs `cd` + `claude` in the active pane, with the
+outcome shown in the status bar. The projects directory is chosen in Settings › Terminal › Projects folder; when unset it
+follows the default folder, then home. The name must be a single folder name (no `/` or `\`, not `.` or `..`): the button is
+disabled with a hint otherwise. An existing folder is reused without error.
+
+Source: `crates/vg-app/src/chrome.rs` (`projects_menu`, `new_project_dialog`), `crates/vg-core/src/settings.rs` (`projects_root`, `create_project_dir`), `crates/vg-core/src/shell.rs` (`launch_claude_command`, `quote`)
 
 ## 15. Settings panel (⚙️)
 
@@ -444,6 +450,7 @@ Source: `crates/vg-app/src/chrome.rs` (`projects_menu`), `crates/vg-core/src/she
 | Terminal | Background notifications | While the window is in the background, a pane turning green / orange posts a system notification ("<folder>: done / waiting for you", several in one tick are merged); on by default, with a ▶ test button. macOS uses `osascript display notification` (no dependency, no permission prompt; the notification is attributed to Script Editor), Linux uses `notify-send`. |
 | Terminal | Save session logs | Session history on/off, on by default, applies to panes opened from then on; a folder button opens the log directory. |
 | Terminal | Default folder | Where <kbd>⌘T</kbd> new tabs and the first pane at launch start; home by default. The folder button picks a directory, ✕ resets to home; a directory that no longer exists falls back to home. Splits ignore it and follow the original pane (see §7). |
+| Terminal | Projects folder | Where ✨ favourite projects › "New project…" creates folders (see §14); follows the default folder when unset, ✕ resets to following it. |
 | Terminal | Scrollback lines | A drag-value field for 500–200 000, clamped automatically; applies immediately to panes that are already open. |
 | Appearance | Theme | Four swatches (terminal background, three ANSI colour dots and a foreground stroke); clicking recolours the whole UI **for this run only** — the lasting setting lives in the config file. |
 | Appearance | Command input colour | Colour picker; mirrored to `~/.config/voiceghostty/input-color` and picked up live by the zsh hook in every open tab. |
@@ -455,7 +462,7 @@ the version and commit (`VoiceGhostty v0.1.0 (abc1234+)`, see § 18), with the b
 
 Settings made here are stored in `~/.config/voiceghostty/settings.json` (keys: `default-language`, `voice-engine`,
 `adds-punctuation`, `scrollback`, `save-history`, `input-color`, `done-sound`, `skill-library-dirs`,
-`loader-groups-collapsed`, `claude-dirs`, `default-dir`). For the keys it shares with the config file the GUI setting wins; a key never
+`loader-groups-collapsed`, `claude-dirs`, `default-dir`, `projects-dir`). For the keys it shares with the config file the GUI setting wins; a key never
 set in the GUI (`null`) falls back to the config file, which remains the power-user / fallback path. Saving settings also
 rewrites the `input-color` file.
 

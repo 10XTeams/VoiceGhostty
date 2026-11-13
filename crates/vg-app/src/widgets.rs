@@ -28,7 +28,7 @@ pub fn truncate(s: &str, n: usize) -> String {
 
 pub fn status_color_of(p: &Palette, status: SessionStatus) -> Color32 {
     match status {
-        SessionStatus::Normal => p.text3,
+        SessionStatus::Normal => p.accent,
         SessionStatus::Busy => p.busy,
         SessionStatus::Done => p.done,
         SessionStatus::Waiting => p.warn,
