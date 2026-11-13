@@ -144,7 +144,8 @@ Source: `crates/vg-app/src/workspace.rs`, `crates/vg-app/src/chrome.rs` (`tab_ba
 A tab holds a **split tree**: `Node` is either a `Leaf` (one terminal) or a `Branch` (a row or column of children).
 Branches nest, so any number of panes in any arrangement is possible — a column of terminals beside a single one, a
 2×2 grid, and so on. The tree is the single source of truth; the pane list and every pane's rectangle are derived from
-it each frame. Siblings share the space equally; there is no drag-to-resize.
+it each frame. A Branch gives each child a **weight** and sizes them in proportion; a fresh split has equal weights,
+i.e. an even split.
 
 - <kbd>⌘D</kbd> splits the **active pane** right, <kbd>⌘⇧D</kbd> splits it down, and both repeat. Splitting along
   the axis a pane already sits on adds a **sibling**, so three <kbd>⌘D</kbd> in a row give three evenly-sized
@@ -172,6 +173,18 @@ it each frame. Siblings share the space equally; there is no drag-to-resize.
   (not on release), since focus should arrive as soon as a drag-select begins.
 - Inactive panes are dimmed with a translucent overlay rather than outlined. Separators are the 1 pt spacing
   between panes, showing a background layer through the gap.
+- **Drag a separator to resize.** Hovering a separator shows a resize cursor and highlights the line; drag it. Only
+  the two panes on either side change (their combined size stays fixed), the rest of the row stays put, and nested
+  separators are independent. Each pane keeps at least 60 pt along the drag axis. The hit zone is 4 pt either side of
+  the line — narrower than the terminal padding — so it never competes with clicks or drag-selection inside a
+  terminal. **Double-click a separator** to even out that row; <kbd>⌘⌃=</kbd> evens out the whole tab.
+- Splitting after a resize: once a row is uneven, the new pane takes half of the original pane's share and the
+  others are unaffected (an even row stays even, so repeated <kbd>⌘D</kbd> still gives equal columns). Closing a pane
+  hands its share to the pane just before it (or after it, if it was first).
+- **Zoom the active pane.** <kbd>⌘⇧↩</kbd> lets the active pane fill the whole tab; the others are only hidden — their
+  shells keep running and their lights keep advancing — and a small badge bottom-right says it is zoomed. Press again to
+  restore; moving focus, splitting, closing, swapping or moving panes also restores it, since a zoom belongs to that
+  pane in that layout. Same keys as Ghostty's `toggle_split_zoom` / `equalize_splits`.
 - When split, the tab bar carries one status dot per lit pane in the panes' visual order (left→right / top→bottom),
   so you can tell at a glance which pane is busy and which has finished.
 
@@ -589,6 +602,9 @@ the terminal (Ctrl+T / W / D all mean something in a shell), so most shortcuts u
 | Send this split to the Nth tab | <kbd>⌘⌃1</kbd>…<kbd>⌘⌃8</kbd> | <kbd>Ctrl+Alt+1</kbd>…<kbd>Ctrl+Alt+8</kbd> |
 | Send this split to the previous / next tab | <kbd>⌘⌃←</kbd> / <kbd>⌘⌃→</kbd> | <kbd>Ctrl+Alt+Shift+←</kbd> / <kbd>Ctrl+Alt+Shift+→</kbd> |
 | Send this split out to a tab of its own | <kbd>⌘⌃T</kbd> | <kbd>Ctrl+Alt+Shift+T</kbd> |
+| Zoom the active split / restore | <kbd>⌘⇧↩</kbd> | <kbd>Ctrl+Shift+Enter</kbd> |
+| Even out all splits | <kbd>⌘⌃=</kbd> | <kbd>Ctrl+Alt+=</kbd> |
+| Resize splits | drag a separator (double-click to even out) | same |
 | Font larger / smaller / reset | <kbd>⌘+</kbd> <kbd>⌘=</kbd> / <kbd>⌘-</kbd> / <kbd>⌘0</kbd> | <kbd>Ctrl+Shift++</kbd> <kbd>Ctrl+Shift+=</kbd> / <kbd>Ctrl+Shift+-</kbd> / <kbd>Ctrl+Shift+0</kbd> |
 | Clear screen | <kbd>⌘K</kbd> | <kbd>Ctrl+Shift+K</kbd> |
 | Search scrollback | <kbd>⌘F</kbd> | <kbd>Ctrl+Shift+F</kbd> |

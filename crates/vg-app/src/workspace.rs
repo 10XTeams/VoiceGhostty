@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+use egui::Rect;
+
 use crate::split::{Axis, Dir, Node};
 
 pub type PaneId = u64;
@@ -12,11 +14,28 @@ pub struct Tab {
     pub active: PaneId,
     /// 手动改的标签名;空则用各窗格的目录名
     pub custom_title: Option<String>,
+    /// 当前窗格放大占满整个标签页(其余分屏暂时隐藏,shell 照跑)。焦点或布局一变就自动还原
+    pub zoomed: bool,
 }
 
 impl Tab {
     fn new(pane: PaneId) -> Tab {
-        Tab { root: Node::Leaf(pane), active: pane, custom_title: None }
+        Tab { root: Node::Leaf(pane), active: pane, custom_title: None, zoomed: false }
+    }
+
+    /// 放大时只有当前窗格,占满整个区域
+    pub fn is_zoomed(&self) -> bool {
+        self.zoomed && self.is_split()
+    }
+
+    /// 这一帧要画的窗格及位置
+    pub fn visible_frames(&self, rect: Rect, gap: f32) -> Vec<(PaneId, Rect)> {
+        if self.is_zoomed() { vec![(self.active, rect)] } else { self.root.frames(rect, gap) }
+    }
+
+    /// 改布局或换焦点前调用:放大状态只属于「这个窗格、这个布局」
+    fn unzoom(&mut self) {
+        self.zoomed = false;
     }
 
     pub fn panes(&self) -> Vec<PaneId> {
@@ -84,6 +103,7 @@ impl<P> Workspace<P> {
         let target = self.active_pane_id()?;
         let id = self.insert(pane);
         let tab = &mut self.tabs[self.active_tab];
+        tab.unzoom();
         tab.root = tab.root.inserting(id, target, axis);
         tab.active = id;
         Some(id)
@@ -93,6 +113,7 @@ impl<P> Workspace<P> {
     pub fn close_active(&mut self) -> Vec<P> {
         let Some(tab) = self.tabs.get_mut(self.active_tab) else { return vec![] };
         let list = tab.panes();
+        tab.unzoom();
         if list.len() > 1 {
             let idx = list.iter().position(|p| *p == tab.active).unwrap_or(0);
             let closing = list[idx];
@@ -123,6 +144,7 @@ impl<P> Workspace<P> {
         for id in gone {
             if let Some(ti) = self.tabs.iter().position(|t| t.root.contains(id)) {
                 let tab = &mut self.tabs[ti];
+                tab.unzoom();
                 match tab.root.removing(id) {
                     Some(pruned) => {
                         tab.root = pruned;
@@ -149,7 +171,11 @@ impl<P> Workspace<P> {
     pub fn focus_pane(&mut self, id: PaneId) {
         if let Some(ti) = self.tabs.iter().position(|t| t.root.contains(id)) {
             self.active_tab = ti;
-            self.tabs[ti].active = id;
+            let tab = &mut self.tabs[ti];
+            if tab.active != id {
+                tab.unzoom();
+                tab.active = id;
+            }
         }
     }
 
@@ -157,6 +183,7 @@ impl<P> Workspace<P> {
     pub fn swap_active(&mut self, dir: Dir) {
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             if let Some(other) = tab.root.neighbor(tab.active, dir) {
+                tab.unzoom();
                 tab.root = tab.root.swapping(tab.active, other);
             }
         }
@@ -166,8 +193,26 @@ impl<P> Workspace<P> {
     pub fn focus_dir(&mut self, dir: Dir) {
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             if let Some(next) = tab.root.neighbor(tab.active, dir) {
+                tab.unzoom();
                 tab.active = next;
             }
+        }
+    }
+
+    // MARK: 尺寸
+
+    /// ⌘⇧↩:当前窗格放大占满标签页 / 还原。没分屏时无事可做
+    pub fn toggle_zoom(&mut self) {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            tab.zoomed = !tab.zoomed && tab.is_split();
+        }
+    }
+
+    /// ⌘⌃=:当前标签页所有分屏恢复等分(放大也一并还原)
+    pub fn equalize_active(&mut self) {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            tab.unzoom();
+            tab.root.equalize();
         }
     }
 
@@ -191,6 +236,7 @@ impl<P> Workspace<P> {
     fn detach_active(&mut self) -> Option<(PaneId, bool)> {
         let tab = self.tabs.get_mut(self.active_tab)?;
         let id = tab.active;
+        tab.unzoom();
         match tab.root.removing(id) {
             Some(pruned) => {
                 tab.root = pruned;
@@ -214,6 +260,7 @@ impl<P> Workspace<P> {
         // 原标签页消失时,目标下标要跟着前移
         let index = if !source_kept && target_tab_was_after { index - 1 } else { index };
         let tab = &mut self.tabs[index];
+        tab.unzoom();
         tab.root = tab.root.inserting(id, tab.active, Axis::Horizontal);
         tab.active = id;
         self.active_tab = index;
@@ -320,6 +367,27 @@ mod tests {
         assert_eq!(names(&w, 0), ["a"]);
         assert_eq!(active(&w), "a");
         assert_eq!(w.active_tab, 0);
+    }
+
+    #[test]
+    fn zoom_follows_focus_and_layout() {
+        let mut w = ws(&[&["a", "b"]]);
+        let r = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 100.0));
+        w.toggle_zoom();
+        let tab = &w.tabs[0];
+        assert!(tab.is_zoomed());
+        assert_eq!(tab.visible_frames(r, 1.0), vec![(tab.active, r)]);
+        w.focus_pane(tab.active); // 点的还是它自己:不还原
+        assert!(w.tabs[0].is_zoomed());
+        w.focus_dir(Dir::Left); // 换焦点:还原
+        assert!(!w.tabs[0].is_zoomed());
+        assert_eq!(w.tabs[0].visible_frames(r, 1.0).len(), 2);
+        w.toggle_zoom();
+        w.split_active("c", Axis::Vertical); // 改布局:还原
+        assert!(!w.tabs[0].is_zoomed());
+        let mut single = ws(&[&["x"]]);
+        single.toggle_zoom(); // 没分屏:不放大
+        assert!(!single.tabs[0].zoomed);
     }
 
     #[test]

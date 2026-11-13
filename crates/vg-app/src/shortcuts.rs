@@ -26,6 +26,10 @@ pub enum Action {
     MoveToNewTab,
     MoveToPrevTab,
     MoveToNextTab,
+    /// 当前分屏放大占满标签页 / 还原
+    ToggleZoom,
+    /// 当前标签页的分屏恢复等分
+    EqualizeSplits,
     FontBigger,
     FontSmaller,
     FontReset,
@@ -101,6 +105,9 @@ impl Action {
             MoveToNewTab => pick(m(CMD_CTRL, Key::T), m(CAS, Key::T)),
             MoveToPrevTab => pick(m(CMD_CTRL, Key::ArrowLeft), m(CAS, Key::ArrowLeft)),
             MoveToNextTab => pick(m(CMD_CTRL, Key::ArrowRight), m(CAS, Key::ArrowRight)),
+            // 与 Ghostty 的 toggle_split_zoom / equalize_splits 一致
+            ToggleZoom => pick(m(CMD_SHIFT, Key::Enter), m(CS, Key::Enter)),
+            EqualizeSplits => pick(m(CMD_CTRL, Key::Equals), m(CA, Key::Equals)),
             FontBigger => {
                 if MAC {
                     vec![m(CMD, Key::Plus), m(CMD, Key::Equals)]
@@ -186,6 +193,9 @@ pub fn help_sections(ptt_key: &str, global_hotkey: Option<&str>) -> Vec<(&'stati
                 (move_n.into(), "移到第 N 个标签页"),
                 (format!("{} / {}", MoveToPrevTab.label(), MoveToNextTab.label()), "移到上一个 / 下一个标签页"),
                 row(MoveToNewTab, "移出成新标签页"),
+                row(ToggleZoom, "放大当前分屏 / 还原"),
+                ("拖动分隔线".into(), "调整分屏大小(双击恢复等分)"),
+                row(EqualizeSplits, "所有分屏恢复等分"),
                 ("点击某个分屏".into(), "语音与输入发往该分屏"),
             ],
         ),
@@ -226,7 +236,7 @@ mod tests {
         use Action::*;
         let mut all: Vec<Action> = vec![
             NewTab, Close, SplitRight, SplitDown, NextTab, PrevTab, LastTab, FocusLeft, FocusRight, FocusUp,
-            FocusDown, SwapLeft, SwapRight, SwapUp, SwapDown, MoveToNewTab, MoveToPrevTab, MoveToNextTab, FontBigger, FontSmaller, FontReset,
+            FocusDown, SwapLeft, SwapRight, SwapUp, SwapDown, MoveToNewTab, MoveToPrevTab, MoveToNextTab, ToggleZoom, EqualizeSplits, FontBigger, FontSmaller, FontReset,
             ClearScreen, Find, SelectAll, ToggleRecording, ToggleMode, UndoVoice, Loader, Settings, Help, Sidebar,
         ];
         all.extend((1..=8).map(Tab));

@@ -39,6 +39,8 @@ pub(crate) struct Status {
 
 /// 分屏之间的间隙(露出底下的分隔线颜色)
 const SPLIT_GAP: f32 = 1.0;
+/// 分隔线两侧各外扩这么多点作为拖动判定区。要小于终端内边距(TERM_PAD),免得和窗格自己的点击、拖选抢鼠标
+const DIVIDER_HIT: f32 = 4.0;
 /// 自然语言模式带给 LLM 的屏幕行数
 const SCREEN_CONTEXT_LINES: usize = 40;
 const FONT_MIN: f32 = 8.0;
@@ -355,6 +357,12 @@ impl VoiceGhosttyApp {
         }
         if MoveToNextTab.consume(ctx) {
             self.ws.move_active_adjacent(1);
+        }
+        if ToggleZoom.consume(ctx) {
+            self.ws.toggle_zoom();
+        }
+        if EqualizeSplits.consume(ctx) {
+            self.ws.equalize_active();
         }
         if FontBigger.consume(ctx) {
             self.font_size = (self.font_size + 1.0).min(FONT_MAX);
@@ -676,8 +684,9 @@ impl VoiceGhosttyApp {
 
     fn terminals(&mut self, ui: &mut egui::Ui) {
         let Some(tab) = self.ws.active_tab() else { return };
-        let frames = tab.root.frames(ui.available_rect_before_wrap(), SPLIT_GAP);
-        let (active, split) = (tab.active, tab.is_split());
+        let area = ui.available_rect_before_wrap();
+        let frames = tab.visible_frames(area, SPLIT_GAP);
+        let (active, split, zoomed) = (tab.active, tab.is_split(), tab.is_zoomed());
         let window_focused = ui.input(|i| i.focused);
         self.monitor.window_focused.store(window_focused, Ordering::Relaxed);
         let theme = self.config.theme();
@@ -721,6 +730,11 @@ impl VoiceGhosttyApp {
             // 窗口到后台后它恰恰是最值得报告的那个,于是也照常推进
             pane.session.shared.neutral.store(window_focused && is_active && !split, Ordering::Relaxed);
         }
+        if zoomed {
+            zoom_badge(ui, area, &p);
+        } else {
+            self.split_dividers(ui, area, &p);
+        }
         ui.allocate_rect(ui.available_rect_before_wrap(), egui::Sense::hover());
         self.terminal_focused = any_focused;
         if let Some(id) = clicked {
@@ -730,6 +744,53 @@ impl VoiceGhosttyApp {
             self.on_ptt(action);
         }
     }
+}
+
+impl VoiceGhosttyApp {
+    /// 分隔线:悬停变调整大小的光标并高亮,拖动改两侧比例,双击把这一排恢复等分。
+    /// 在窗格之后注册,判定区又只落在窗格内边距里,所以不会和终端的点击 / 拖选冲突
+    fn split_dividers(&mut self, ui: &mut egui::Ui, area: egui::Rect, p: &style::Palette) {
+        use crate::split::Axis;
+        let ti = self.ws.active_tab;
+        let Some(tab) = self.ws.tabs.get_mut(ti) else { return };
+        for d in tab.root.dividers(area, SPLIT_GAP) {
+            let (hit, cursor) = match d.axis {
+                Axis::Horizontal => (d.rect.expand2(egui::vec2(DIVIDER_HIT, 0.0)), egui::CursorIcon::ResizeHorizontal),
+                Axis::Vertical => (d.rect.expand2(egui::vec2(0.0, DIVIDER_HIT)), egui::CursorIcon::ResizeVertical),
+            };
+            let id = ui.id().with(("split-divider", ti, &d.path, d.index));
+            let resp = ui.interact(hit, id, egui::Sense::click_and_drag());
+            if resp.hovered() || resp.dragged() {
+                ui.ctx().set_cursor_icon(cursor);
+                let line = match d.axis {
+                    Axis::Horizontal => d.rect.expand2(egui::vec2(1.0, 0.0)),
+                    Axis::Vertical => d.rect.expand2(egui::vec2(0.0, 1.0)),
+                };
+                ui.painter().rect_filled(line, 0.0, style::alpha(p.accent, 0.7));
+            }
+            if resp.double_clicked() {
+                tab.root.equalize_at(&d.path);
+            } else if resp.dragged() {
+                if let Some(pos) = resp.interact_pointer_pos() {
+                    let along = match d.axis {
+                        Axis::Horizontal => pos.x,
+                        Axis::Vertical => pos.y,
+                    };
+                    tab.root.drag_divider(&d, along, SPLIT_GAP);
+                }
+            }
+        }
+    }
+}
+
+/// 放大中:右下角一枚小标签,提醒其余分屏只是藏起来了、怎么还原
+fn zoom_badge(ui: &egui::Ui, area: egui::Rect, p: &style::Palette) {
+    let text = format!("已放大 · {} 还原", Action::ToggleZoom.label());
+    let galley = ui.painter().layout_no_wrap(text, style::small(), p.text2);
+    let size = galley.size() + egui::vec2(16.0, 6.0);
+    let rect = egui::Rect::from_min_size(area.max - size - egui::vec2(8.0, 6.0), size);
+    ui.painter().rect_filled(rect, size.y / 2.0, style::alpha(p.chrome, 0.9));
+    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, p.text2);
 }
 
 impl eframe::App for VoiceGhosttyApp {
