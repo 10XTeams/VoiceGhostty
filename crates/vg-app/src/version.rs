@@ -1,11 +1,11 @@
 //! 版本信息。版本号的唯一来源是 Cargo.toml 的 workspace version;提交号与构建时刻由 build.rs 注入。
 
-/// 市场版本号,如 `0.1.0`
+/// 市场版本号,如 `1.0.0`
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// 构建自哪个提交,如 `abc1234` 或 `abc1234+`(带未提交改动)
 pub const GIT_COMMIT: &str = env!("VG_GIT_COMMIT");
 
-/// 设置窗口底部那行:`v0.1.0 (abc1234+)`。提交号未知时只给版本号
+/// 设置窗口底部那行:`v1.0.0 (abc1234+)`。提交号未知时只给版本号
 pub fn label() -> String {
     match GIT_COMMIT {
         "" | "unknown" => format!("v{VERSION}"),

@@ -1,7 +1,9 @@
 name: Build & Release
 
-# Push a tag like v0.1.0 to build the macOS .app and attach it to a GitHub Release.
-# The tag must match the workspace version in Cargo.toml; the build fails otherwise.
+# Push a tag like v1.0.0 to build the macOS .app and attach it to a GitHub Release.
+# The tag must match the workspace version in Cargo.toml and CHANGELOG.md must have a section for it;
+# the build fails otherwise. Versioning rules: docs/VERSIONING.md. Tags with a pre-release suffix
+# (v1.2.0-beta.1) become GitHub pre-releases.
 on:
   push:
     tags:
@@ -40,6 +42,45 @@ jobs:
             exit 1
           fi
 
+      - name: Release notes from CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          # 「## [1.2.0] — 日期」到下一个「## [」之间的内容
+          awk -v v="$VERSION" 'index($0, "## [" v "]") == 1 {on=1; next} /^## \[/ {on=0} on && !/^\[[^]]*\]: /' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "CHANGELOG.md has no section for $VERSION — run scripts/bump-version.sh before tagging" >&2
+            exit 1
+          fi
+          # 去掉开头的空行
+          sed -i '' -e '/./,$!d' notes.md
+          cat >> notes.md <<'EOF_INSTALL'
+
+          ### Install
+
+          **Homebrew (easiest):**
+          ```bash
+          brew install --cask 10xteams/tap/voiceghostty
+          ```
+
+          **Manual:** download the `.zip` below, unzip, move to `/Applications`, then clear the
+          quarantine flag — the build is ad-hoc signed and not notarized, so Gatekeeper blocks it
+          until you do:
+          ```bash
+          xattr -cr /Applications/VoiceGhostty.app
+          open /Applications/VoiceGhostty.app
+          ```
+          Prefer not to run `xattr`? Let the first launch be blocked, then **System Settings →
+          Privacy & Security → Open Anyway**. (Right-click → Open no longer works on current macOS.)
+
+          Grant **Microphone** access when macOS asks. For offline recognition, drop a whisper.cpp
+          model (`ggml-*.bin`) into `~/.config/voiceghostty/models/` — see the README.
+
+          Requires macOS 13+ (Apple Silicon). Built from source with `./make-app.sh`.
+          EOF_INSTALL
+          cat notes.md
+
       - name: Test
         run: cargo test --workspace
 
@@ -75,25 +116,5 @@ jobs:
         with:
           files: ${{ env.ASSET }}
           generate_release_notes: true
-          body: |
-            ### Install
-
-            **Homebrew (easiest):**
-            ```bash
-            brew install --cask 10xteams/tap/voiceghostty
-            ```
-
-            **Manual:** download the `.zip` below, unzip, move to `/Applications`, then clear the
-            quarantine flag — the build is ad-hoc signed and not notarized, so Gatekeeper blocks it
-            until you do:
-            ```bash
-            xattr -cr /Applications/VoiceGhostty.app
-            open /Applications/VoiceGhostty.app
-            ```
-            Prefer not to run `xattr`? Let the first launch be blocked, then **System Settings →
-            Privacy & Security → Open Anyway**. (Right-click → Open no longer works on current macOS.)
-
-            Grant **Microphone** access when macOS asks. For offline recognition, drop a whisper.cpp
-            model (`ggml-*.bin`) into `~/.config/voiceghostty/models/` — see the README.
-
-            Requires macOS 13+ (Apple Silicon). Built from source with `./make-app.sh`.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body_path: notes.md

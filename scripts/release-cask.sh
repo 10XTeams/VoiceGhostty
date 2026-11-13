@@ -2,8 +2,8 @@
 # 发布后同步 Homebrew cask:从 GitHub Release 拉下 zip、算 sha256、更新 cask 定义,
 # 并(可选)推送到 tap 仓库 10XTeams/homebrew-tap。
 #
-#   ./scripts/release-cask.sh v0.1.0           # 只更新本仓库里的 cask 定义
-#   ./scripts/release-cask.sh v0.1.0 --push    # 顺带推到 tap 仓库
+#   ./scripts/release-cask.sh v1.0.0           # 只更新本仓库里的 cask 定义
+#   ./scripts/release-cask.sh v1.0.0 --push    # 顺带推到 tap 仓库
 #
 # 前置:release 已经建好且 zip 资产已上传(打 tag 后 CI 会做),本机 gh 已登录。
 set -euo pipefail
@@ -15,10 +15,10 @@ TAP_REPO="10XTeams/homebrew-tap"
 CASK_SRC="packaging/homebrew/voiceghostty.rb"
 
 if [[ -z "$TAG" ]]; then
-    echo "用法: $0 <tag> [--push]     例: $0 v0.1.0 --push" >&2
+    echo "用法: $0 <tag> [--push]     例: $0 v1.0.0 --push" >&2
     exit 1
 fi
-VERSION="${TAG#v}"   # v0.1.0 -> 0.1.0
+VERSION="${TAG#v}"   # v1.0.0 -> 1.0.0
 
 echo "▶ 拉取 release 资产 $TAG"
 WORK=$(mktemp -d)

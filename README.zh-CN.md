@@ -243,7 +243,9 @@ VoiceGhostty 会在 `~/.config/voiceghostty/shell-rs/` 生成一层 ZDOTDIR 包�
 
 ## 版本
 
-版本号只在 `Cargo.toml` 的 `[workspace.package]` 里定义一处。打包时它被写进 `Info.plist`,git 提交号由 `build.rs` 注入二进制,设置窗口底部显示 `v0.1.0 (abc1234+)`,末尾的 `+` 表示带未提交改动。发版即推一个与之一致的 tag(如 `v0.1.0`),CI 会构建 .app、建 Release,再用 `scripts/release-cask.sh` 同步 Homebrew cask。
+遵循[语义化版本](https://semver.org/lang/zh-CN/),当前 **1.0.0**。什么改动升主版本 / 次版本 / 修订版见 [docs/VERSIONING.md](docs/VERSIONING.md),每一版改了什么见 [CHANGELOG.md](CHANGELOG.md)。
+
+版本号只在 `Cargo.toml` 的 `[workspace.package]` 里定义一处。打包时它被写进 `Info.plist`,git 提交号由 `build.rs` 注入二进制,设置窗口底部显示 `v1.0.0 (abc1234+)`,末尾的 `+` 表示带未提交改动。发版:`scripts/bump-version.sh minor`(或 `major` / `patch` / 指定版本)改好版本号与 CHANGELOG,提交后推一个与之一致的 tag(如 `v1.1.0`),CI 校验后构建 .app、以 CHANGELOG 那一节为说明建 Release,再用 `scripts/release-cask.sh` 同步 Homebrew cask。
 
 ## 路线图
 

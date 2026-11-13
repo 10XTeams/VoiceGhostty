@@ -263,10 +263,16 @@ Built on [egui](https://github.com/emilk/egui), [alacritty_terminal](https://cra
 
 ## Versioning
 
+[Semantic Versioning](https://semver.org/), currently **1.0.0**. What counts as a major / minor / patch change is
+spelled out in [docs/VERSIONING.md](docs/VERSIONING.md) (Chinese); what changed in each release is in
+[CHANGELOG.md](CHANGELOG.md).
+
 The version is defined once, in `[workspace.package]` in `Cargo.toml`. Packaging writes it into `Info.plist`;
-`build.rs` injects the git commit into the binary, and the Settings window shows `v0.1.0 (abc1234+)` at the
-bottom, the `+` meaning uncommitted changes were present. To release, push a matching tag (`v0.1.0`): CI builds
-the .app and creates the GitHub Release, then `scripts/release-cask.sh` updates the Homebrew cask.
+`build.rs` injects the git commit into the binary, and the Settings window shows `v1.0.0 (abc1234+)` at the
+bottom, the `+` meaning uncommitted changes were present. To release, run `scripts/bump-version.sh minor` (or
+`major` / `patch` / an explicit version) to update the version and CHANGELOG, commit, and push a matching tag
+(`v1.1.0`): CI checks it, builds the .app and creates the GitHub Release with that CHANGELOG section as notes,
+then `scripts/release-cask.sh` updates the Homebrew cask.
 
 ## Roadmap
 

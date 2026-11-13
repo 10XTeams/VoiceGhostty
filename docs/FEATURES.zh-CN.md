@@ -397,7 +397,7 @@
 | 加载文件夹 | 文件夹列表 | 🧩 面板的来源目录。**添加文件夹…** 可一次选多个;每行悬停出现「上移(优先级更高)」和「移除」;序号即重名时的优先级;添加当下提示新文件夹里有几项与上面的重名。可以全部移除且会记住 —— 没有文件夹时,🧩 面板只列出项目里已加载的条目。 |
 
 底部一行说明「API 地址、外部识别命令、模型等更多选项写在 `~/.config/voiceghostty/config`」,点路径在文件管理器里打开所在目录;
-右下角显示版本与提交号(`VoiceGhostty v0.1.0 (abc1234+)`,见第 18 节),悬停看构建时间。
+右下角显示版本与提交号(`VoiceGhostty v1.0.0 (abc1234+)`,见第 18 节),悬停看构建时间。
 
 这里改的设置存 `~/.config/voiceghostty/settings.json`(键:`default-language`、`voice-engine`、`adds-punctuation`、`scrollback`、
 `save-history`、`input-color`、`done-sound`、`skill-library-dirs`、`loader-groups-collapsed`、`claude-dirs`、`default-dir`、`projects-dir`)。与配置文件共有的键,
@@ -482,7 +482,7 @@ GUI 设置优先;没在 GUI 里设过的(`null`)回退配置文件。配置文�
   麦克风权限弹窗依赖 bundle 里的 `NSMicrophoneUsageDescription`,所以 `cargo run` 的裸二进制拿不到权限。`LSMinimumSystemVersion` 13.0。
 - **版本号单一来源**是 `Cargo.toml` 的 workspace `version`。`vg-app` 的 `build.rs` 把 git 提交号注入环境变量 `VG_GIT_COMMIT`
   (打包脚本和 CI 直接设好它,末尾 `+` 表示带未提交改动;没设时 build.rs 自己问 git)和构建时刻 `VG_BUILD_EPOCH`;设置窗口
-  底部显示 `v0.1.0 (abc1234+)`,悬停看版本 / 提交 / 构建时间。打包脚本同时把版本写进 `CFBundleShortVersionString`、
+  底部显示 `v1.0.0 (abc1234+)`,悬停看版本 / 提交 / 构建时间。打包脚本同时把版本写进 `CFBundleShortVersionString`、
   构建时间戳写进 `CFBundleVersion`、提交号写进自定义键 `VGGitCommit`。市场版本号跨构建不变,单看它分不出新旧;
   提交号才能说明跑的 .app 里有没有某个修复。
 - 界面截图测试(`shots.rs`,默认跳过):用真 App + 真 shell 经 wgpu 离屏渲染出 PNG,逐张检查视觉效果。

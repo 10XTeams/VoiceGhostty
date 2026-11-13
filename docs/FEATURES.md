@@ -471,7 +471,7 @@ Source: `crates/vg-app/src/chrome.rs` (`projects_menu`, `new_project_dialog`), `
 
 A footer line notes that API URLs, the external recognition command, models and the rest live in
 `~/.config/voiceghostty/config`; clicking the path reveals its folder in the file manager. The bottom-right corner shows
-the version and commit (`VoiceGhostty v0.1.0 (abc1234+)`, see § 18), with the build time on hover.
+the version and commit (`VoiceGhostty v1.0.0 (abc1234+)`, see § 18), with the build time on hover.
 
 Settings made here are stored in `~/.config/voiceghostty/settings.json` (keys: `default-language`, `voice-engine`,
 `adds-punctuation`, `scrollback`, `save-history`, `input-color`, `done-sound`, `skill-library-dirs`,
@@ -571,7 +571,7 @@ Source: `crates/vg-core/src/config.rs`, `crates/vg-core/src/paths.rs`
 - **The version number has a single source**: the workspace `version` in `Cargo.toml`. `vg-app`'s `build.rs` injects
   the git commit as the `VG_GIT_COMMIT` environment variable (the packaging script and CI set it themselves, with a
   trailing `+` for uncommitted changes; unset, build.rs asks git) together with the build time `VG_BUILD_EPOCH`; the
-  bottom of the Settings window shows `v0.1.0 (abc1234+)`, with version / commit / build time on hover. The packaging
+  bottom of the Settings window shows `v1.0.0 (abc1234+)`, with version / commit / build time on hover. The packaging
   script also writes the version into `CFBundleShortVersionString`, a build timestamp into `CFBundleVersion` and the
   commit into a custom `VGGitCommit` key. The marketing version does not change between builds, so it alone cannot tell
   old from new; the commit says whether the `.app` you are running contains a given fix.
