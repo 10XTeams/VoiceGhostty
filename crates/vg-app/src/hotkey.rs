@@ -253,7 +253,8 @@ impl GlobalHotkey {
     /// 按配置注册。空配置返回 Ok(None)
     pub fn register(spec: &str, ctx: &egui::Context) -> Result<Option<GlobalHotkey>, String> {
         let Some((code, mods)) = parse(spec)? else { return Ok(None) };
-        let (tx, rx) = mpsc::channel();
+        // 显式标类型:非 macOS 分支里 tx / rx 都没被用到,推断不出元素类型
+        let (tx, rx) = mpsc::channel::<HotkeyEvent>();
         #[cfg(target_os = "macos")]
         {
             let reg = platform::Registration::new(code, mods, tx, ctx.clone())?;
