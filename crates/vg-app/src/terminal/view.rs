@@ -109,7 +109,7 @@ pub fn show(
 
     let mut actions = Vec::new();
     if focused {
-        handle_input(ui, session, state, opts, ch, response.hovered(), &mut actions);
+        handle_input(ui, session, state, opts, rect, cw, ch, response.hovered(), &mut actions);
         // IME 候选框跟随光标。egui-winit 告诉系统的是 `rect` 而不是 `cursor_rect`(它按单行输入框设计,
         // 两者差不多大),系统再把候选框摆在这个矩形的下沿。终端占满整个窗格,传整块区域候选框就跑到窗格底部去了,
         // 所以这里两个字段都给光标所在的那个格子。
@@ -151,6 +151,8 @@ fn handle_input(
     session: &mut TerminalSession,
     state: &mut InputState,
     opts: &ViewOptions,
+    rect: Rect,
+    cw: f32,
     ch: f32,
     hovered: bool,
     actions: &mut Vec<PttAction>,
@@ -234,7 +236,12 @@ fn handle_input(
                 let whole = state.scroll_accum.trunc() as i32;
                 if whole != 0 {
                     state.scroll_accum -= whole as f32;
-                    scroll(session, mode, whole);
+                    let pos = ui.input(|i| i.pointer.hover_pos()).unwrap_or(rect.min);
+                    let cell = (
+                        ((pos.x - rect.min.x) / cw).max(0.0) as usize + 1,
+                        ((pos.y - rect.min.y) / ch).max(0.0) as usize + 1,
+                    );
+                    scroll(session, mode, whole, cell);
                 }
             }
             _ => {}
@@ -392,9 +399,14 @@ fn paste(session: &TerminalSession, mode: TermMode, text: &str) {
     }
 }
 
-fn scroll(session: &TerminalSession, mode: TermMode, lines: i32) {
-    // 全屏程序(less/vim)里滚轮转成方向键
-    if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) && !mode.intersects(TermMode::MOUSE_MODE) {
+/// `cell`:指针所在格子(从 1 开始的列、行),报给要了鼠标的程序用
+fn scroll(session: &TerminalSession, mode: TermMode, lines: i32, cell: (usize, usize)) {
+    if mode.intersects(TermMode::MOUSE_MODE) {
+        // 程序自己要了鼠标(codex、vim `mouse=a`、htop…):滚轮按鼠标事件报给它,由它自己滚。
+        // 不报的话,备用屏没有滚动历史,滚轮就什么都不做
+        session.write(wheel_report(mode, lines > 0, cell).repeat(lines.unsigned_abs() as usize));
+    } else if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) {
+        // 全屏程序(less/vim)里滚轮转成方向键
         let seq: &[u8] = match (lines > 0, mode.contains(TermMode::APP_CURSOR)) {
             (true, true) => b"\x1bOA",
             (true, false) => b"\x1b[A",
@@ -404,6 +416,18 @@ fn scroll(session: &TerminalSession, mode: TermMode, lines: i32) {
         session.write(seq.repeat(lines.unsigned_abs() as usize));
     } else {
         session.term.lock().scroll_display(Scroll::Delta(lines));
+    }
+}
+
+/// 一格滚轮的鼠标报告:上 = 按钮 64,下 = 65。SGR(1006)是 `ESC [ < b ; x ; y M`,
+/// 否则用老式 X10 编码(每个值加 32 成一个字节,坐标最大 223)
+fn wheel_report(mode: TermMode, up: bool, (col, row): (usize, usize)) -> Vec<u8> {
+    let button = if up { 64 } else { 65 };
+    if mode.contains(TermMode::SGR_MOUSE) {
+        format!("\x1b[<{button};{col};{row}M").into_bytes()
+    } else {
+        let byte = |v: usize| (32 + v).min(255) as u8;
+        vec![0x1b, b'[', b'M', byte(button), byte(col), byte(row)]
     }
 }
 
@@ -573,6 +597,17 @@ pub fn resolve_index(theme: &Theme, index: usize) -> Rgb {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 程序要了鼠标时(codex 进备用屏 + 1000/1002/1003/1006),滚轮得编码成鼠标报告
+    #[test]
+    fn wheel_reports_to_mouse_apps() {
+        let sgr = TermMode::ALT_SCREEN | TermMode::MOUSE_REPORT_CLICK | TermMode::SGR_MOUSE;
+        assert_eq!(wheel_report(sgr, true, (5, 3)), b"\x1b[<64;5;3M");
+        assert_eq!(wheel_report(sgr, false, (1, 1)), b"\x1b[<65;1;1M");
+        let x10 = TermMode::MOUSE_REPORT_CLICK;
+        assert_eq!(wheel_report(x10, true, (1, 2)), vec![0x1b, b'[', b'M', 96, 33, 34]);
+        assert_eq!(wheel_report(x10, false, (500, 2))[4], 255);
+    }
 
     #[test]
     fn resolves_palette() {
