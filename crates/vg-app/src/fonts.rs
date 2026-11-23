@@ -192,6 +192,11 @@ fn cjk_baseline_shift(defs: &FontDefinitions, family: FontFamily) -> f32 {
     }
 }
 
+/// 设置界面用:这个字体名能不能找到(空 = 默认等宽字体,总能找到)
+pub fn font_available(family: &str) -> bool {
+    family.trim().is_empty() || find_font_file(family.trim()).is_some()
+}
+
 /// 在字体目录里找文件名包含 family(忽略大小写和空格)的 ttf/otf
 fn find_font_file(family: &str) -> Option<PathBuf> {
     let needle = family.to_lowercase().replace(' ', "");

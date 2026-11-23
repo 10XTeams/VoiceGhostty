@@ -41,6 +41,8 @@ pub enum Action {
     /// 撤销上一次语音上屏的文本
     UndoVoice,
     Loader,
+    /// 用量洞察面板
+    Insights,
     Settings,
     Help,
     /// 窗格列表侧边栏
@@ -124,6 +126,7 @@ impl Action {
             ToggleMode => pick(m(CMD_SHIFT, Key::N), m(CS, Key::N)),
             UndoVoice => pick(m(CMD, Key::Z), m(CS, Key::Z)),
             Loader => pick(m(CMD, Key::L), m(CS, Key::L)),
+            Insights => pick(m(CMD, Key::I), m(CS, Key::I)),
             Settings => pick(m(CMD, Key::Comma), m(CS, Key::Comma)),
             Help => pick(m(CMD, Key::Slash), m(CS, Key::Slash)),
             Sidebar => pick(m(CMD, Key::B), m(CS, Key::B)),
@@ -220,6 +223,7 @@ pub fn help_sections(ptt_key: &str, global_hotkey: Option<&str>) -> Vec<(&'stati
                 row(SelectAll, "全选"),
                 row(Sidebar, "窗格列表侧边栏(所有标签页 / 分屏的状态)"),
                 row(Loader, "加载器(技能 / Agent / 插件)"),
+                row(Insights, "用量洞察(Token、折合费用、省钱建议)"),
                 row(Settings, "设置"),
                 row(Help, "快捷键帮助"),
             ],
@@ -237,7 +241,7 @@ mod tests {
         let mut all: Vec<Action> = vec![
             NewTab, Close, SplitRight, SplitDown, NextTab, PrevTab, LastTab, FocusLeft, FocusRight, FocusUp,
             FocusDown, SwapLeft, SwapRight, SwapUp, SwapDown, MoveToNewTab, MoveToPrevTab, MoveToNextTab, ToggleZoom, EqualizeSplits, FontBigger, FontSmaller, FontReset,
-            ClearScreen, Find, SelectAll, ToggleRecording, ToggleMode, UndoVoice, Loader, Settings, Help, Sidebar,
+            ClearScreen, Find, SelectAll, ToggleRecording, ToggleMode, UndoVoice, Loader, Insights, Settings, Help, Sidebar,
         ];
         all.extend((1..=8).map(Tab));
         all.extend((1..=8).map(MoveToTab));

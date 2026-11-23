@@ -47,3 +47,8 @@ pub fn history_dir() -> PathBuf {
 pub fn run_dir() -> PathBuf {
     config_dir().join("run")
 }
+
+/// 用量洞察的台账(按月一个文件)与扫描游标
+pub fn usage_dir() -> PathBuf {
+    config_dir().join("usage")
+}

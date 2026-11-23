@@ -4,6 +4,8 @@ mod app;
 mod fonts;
 mod hotkey;
 mod icons;
+mod insights;
+mod insights_panel;
 mod kit;
 mod loader_panel;
 mod model_ui;

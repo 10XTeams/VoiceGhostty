@@ -27,9 +27,18 @@ pub struct ContextUsage {
     pub model: Option<String>,
     pub session_id: Option<String>,
     pub transcript: PathBuf,
+    /// 最近一次请求的时刻(Unix 毫秒),缓存倒计时从这里算
+    pub last_request_ms: Option<i64>,
+    /// 缓存的存活时间:这个会话写过 1 小时缓存就是 1 小时,否则 5 分钟
+    pub cache_ttl_ms: i64,
 }
 
 impl ContextUsage {
+    /// 缓存还剩多少毫秒;已过期为负,不知道为 None
+    pub fn cache_left_ms(&self, now_ms: i64) -> Option<i64> {
+        self.last_request_ms.map(|t| t + self.cache_ttl_ms - now_ms)
+    }
+
     pub fn fraction(&self) -> f64 {
         if self.limit == 0 {
             0.0
@@ -73,6 +82,8 @@ pub struct UsageWatcher {
     /// 来自 transcript 的模型附件,和 `message.model` 不同,它保留 `[1m]` 后缀
     model_id: Option<String>,
     session_id: Option<String>,
+    last_request_ms: Option<i64>,
+    uses_1h: bool,
     projects_root: Option<PathBuf>,
 }
 
@@ -168,6 +179,12 @@ impl UsageWatcher {
                 if let Some(s) = record.get("sessionId").and_then(Value::as_str) {
                     self.session_id = Some(s.to_string());
                 }
+                if let Some(t) = record.get("timestamp").and_then(Value::as_str).and_then(crate::insights::time::parse_rfc3339_ms) {
+                    self.last_request_ms = Some(t);
+                }
+                if usage.pointer("/cache_creation/ephemeral_1h_input_tokens").and_then(Value::as_u64).unwrap_or(0) > 0 {
+                    self.uses_1h = true;
+                }
             }
         }
 
@@ -188,6 +205,8 @@ impl UsageWatcher {
             model: self.model_id.clone().or_else(|| self.model.clone()),
             session_id: self.session_id.clone(),
             transcript: self.path.clone()?,
+            last_request_ms: self.last_request_ms,
+            cache_ttl_ms: if self.uses_1h { 3_600_000 } else { 300_000 },
         })
     }
 
@@ -212,6 +231,8 @@ impl UsageWatcher {
         self.model = None;
         self.model_id = None;
         self.session_id = None;
+        self.last_request_ms = None;
+        self.uses_1h = false;
     }
 }
 

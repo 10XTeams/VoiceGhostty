@@ -199,6 +199,7 @@ one of them is.
 
 - **Waiting (orange).** The command is still running, has been quiet for ≥ 2 s, and the dozen lines around the cursor contain something that reads like a question — Claude Code's "Do you want to…", "Yes, and don't ask again", "Esc to cancel", generic `[y/N]` `(yes/no)` `continue?`, `Password:`, Chinese 「是否继续」「请输入」 and so on (the list lives in `status::looks_like_prompt` and errs on the quiet side). This used to show as "done" or stay yellow forever; now it is orange and **chimes** (a quiet TUI normally does not chime, but a visible question is hard evidence). Once you answer and output resumes it goes back to yellow. Aggregate priority: orange > green > yellow > blue. The monitor thread reads the screen only while a command is running, every 0.5 s — cheap.
 - **Pane list sidebar.** <kbd>⌘B</kbd> (<kbd>Ctrl+Shift+B</kbd> on Linux / Windows) or the sidebar button in the status bar; the open state is persisted in `settings.json`. A column on the left: one group per tab (number + title, click to switch tabs) listing each of its panes with status dot, folder name and a status word on the right (running / done / waiting for you); hover for the terminal title; click a row to jump straight to that pane. With many tabs and splits, finding the orange one here beats scanning the tab-bar dots.
+  **The list and the top tab bar are an either/or**: while the list is open the tab bar is hidden, and everything the tab bar did lives in the list — hover a tab's row for its close button (middle-click works too), double-click to rename, and "New tab" sits at the end of the list.
 
 - **Precise mode.** Once a command boundary written by shell integration has been seen, it drives the light: command
   started → yellow, command finished → green, and green persists until you attend to it or the next command starts.
@@ -216,9 +217,9 @@ one of them is.
   raw, but this is only consulted while a command is running, so that case never arises.
 - **Heuristic fallback.** Without shell integration (a shell other than zsh): terminal bell, or "had output then went
   silent for ≥ 2 s", counts as done; recent output counts as busy.
-- The single pane you are actively using stays neutral — a terminal never nags you with its own light — but
-  only while VoiceGhostty is in front and that tab is not split. Sent to the background, that pane advances like any
-  other, since its finish is exactly what you left to wait for; coming back to the front resets it to blue. In a
+- The single pane you are actively using still turns yellow while it works, but never lights green / orange or chimes — a terminal never
+  nags you with its own light — and only while VoiceGhostty is in front and that tab is not split. Sent to the background, that pane advances like any
+  other, since its finish is exactly what you left to wait for; coming back to the front clears green / orange. In a
   split, every pane reports independently; panes in other tabs always advance.
 - **Chime on green** (Settings → Terminal → Done chime, on by default, with a ▶ preview next to it). No audio file
   and no system sound: it is synthesized live on a cpal output stream — three partials (E6 / B6 / E7) with exponential
@@ -346,6 +347,29 @@ assistant record carries that request's `usage`. Context = `input + cache_creati
 
 Source: `crates/vg-core/src/claude_usage.rs`, `crates/vg-app/src/terminal/proc.rs` (`claude_working_directory`), `crates/vg-app/src/terminal/session.rs`, `crates/vg-app/src/widgets.rs` (`claude_meter`)
 
+### 12.1 Cache countdown and usage insights
+
+- **Cache countdown.** Once a claude pane turns green (waiting for you), the meter adds `⏱ 4:12`: time left on the
+  prompt cache, counted from the last request (1 h if the session has written 1-hour cache, else 5 min). Orange in
+  the last minute, "已过期" after — the next message then re-pays the whole context as cache writes.
+- **Insights panel** (<kbd>⌘I</kbd> / <kbd>Ctrl+Shift+I</kbd>, the chart icon, saying "用量", or clicking the meter, which
+  opens the Sessions tab filtered to that project). Tabs: Advice / Usage / Sessions; 7 or 30 days; filter by agent,
+  model (vendor → model, multi-select) and project, applied to every tab.
+- **Ledger.** A background thread reads `~/.claude/projects/**` (main sessions and `subagents/agent-*.jsonl`) into
+  `~/.config/voiceghostty/usage/YYYY-MM.tsv`, one row per turn, numbers only. Per-file byte cursors; the last turn is
+  re-parsed each scan and the newest row per key wins, so nothing is double-counted. Repeated assistant records of one
+  response (same `message.id`) are counted once. Scans on start if a period (default 60 min) has passed, every period
+  while running, and whenever the panel opens. Kept forever (Claude Code deletes its own records after ~30 days);
+  Settings → 数据 → 用量洞察 can clear it.
+- **Two numbers, no "equivalent tokens".** Token total = input + cache write + cache read + output; 折合费用 = each
+  part × the model's official price (cache writes 1.25× / 2× input for 5 min / 1 h). Models without a price show "—".
+  Prices are overridable per model in `settings.json` (`insights-prices`).
+- **Advice (rules, no LLM):** continuing after the cache expired (gap > TTL and the request wrote more cache than it
+  read), and projects whose first-request context is ≥ 1.3× your own median across projects. Sorted by estimated
+  saving; each can be muted.
+
+Source: `crates/vg-core/src/insights/`, `crates/vg-app/src/insights.rs`, `crates/vg-app/src/insights_panel.rs`
+
 ## 13. Claude Code loader (🧩)
 
 Opened with <kbd>⌘L</kbd> or the 🧩 button in the status bar. One centred panel, **three tabs — Skill / Agent / Plugin**.
@@ -466,17 +490,24 @@ Source: `crates/vg-app/src/chrome.rs` (`projects_menu`, `new_project_dialog`), `
 | Terminal | Default folder | Where <kbd>⌘T</kbd> new tabs and the first pane at launch start; home by default. The folder button picks a directory, ✕ resets to home; a directory that no longer exists falls back to home. Splits ignore it and follow the original pane (see §7). |
 | Terminal | Projects folder | Where ✨ favourite projects › "New project…" creates folders (see §14); follows the default folder when unset, ✕ resets to following it. |
 | Terminal | Scrollback lines | A drag-value field for 500–200 000, clamped automatically; applies immediately to panes that are already open. |
-| Appearance | Theme | Four swatches (terminal background, three ANSI colour dots and a foreground stroke); clicking recolours the whole UI **for this run only** — the lasting setting lives in the config file. |
+| Appearance | Theme | Four swatches (terminal background, three ANSI colour dots and a foreground stroke); clicking recolours the whole UI and is saved (`theme`). |
+| Appearance | Terminal font / size | Font name (or part of the file name) is committed on blur and the fonts are reinstalled at once; an unknown name is flagged in the hint and falls back to the default monospace font. Size 8–48; ⌘0 returns to it. |
 | Appearance | Command input colour | Colour picker; mirrored to `~/.config/voiceghostty/input-color` and picked up live by the zsh hook in every open tab. |
+| Voice | API URL / key / model | Shown when the engine is "HTTP"; the key is a password field. |
+| Voice | Recognition command | Shown when the engine is "External command"; `{wav}` / `{lang}` placeholders. |
+| Natural language | Provider, screen context, correction | Map to `llm-provider`, `llm-screen-context`, `correction`. |
+| Natural language | Claude API key / model, Ollama URL / model | Map to `llm-api-key`, `llm-model`, `llm-local-url`, `llm-local-model`. |
+| Data | History save interval, runtime data locations, usage insights | Interval 1–300 s (default 5), applied to open panes immediately; each data folder opens in one click. |
 | Load folders | Folder list | The source directories the 🧩 panel reads. **Add folder…** takes several at once; hovering a row reveals "move up (higher priority)" and "remove"; the index is the priority for duplicate names; adding a folder immediately reports how many of its items collide with the folders above. Removing every row is allowed and sticks — with no folders, the 🧩 panel lists only what is already loaded in the project. |
 
-A footer line notes that API URLs, the external recognition command, models and the rest live in
+A footer line notes that the microphone, hotwords, hold time, colour overrides and the rest live in
 `~/.config/voiceghostty/config`; clicking the path reveals its folder in the file manager. The bottom-right corner shows
 the version and commit (`VoiceGhostty v1.0.0 (abc1234+)`, see § 18), with the build time on hover.
 
 Settings made here are stored in `~/.config/voiceghostty/settings.json` (keys: `default-language`, `voice-engine`,
 `adds-punctuation`, `scrollback`, `save-history`, `input-color`, `done-sound`, `skill-library-dirs`,
-`loader-groups-collapsed`, `claude-dirs`, `default-dir`, `projects-dir`). For the keys it shares with the config file the GUI setting wins; a key never
+`loader-groups-collapsed`, `claude-dirs`, `default-dir`, `projects-dir`, `history-save-seconds`, `theme`, `font-family`,
+`font-size`, `voice-api-url`, `voice-api-key`, `voice-api-model`, `voice-command`, `llm-*`). Text fields commit on blur; clearing one falls back to the config file / default. For the keys it shares with the config file the GUI setting wins; a key never
 set in the GUI (`null`) falls back to the config file, which remains the power-user / fallback path. Saving settings also
 rewrites the `input-color` file.
 
@@ -516,7 +547,7 @@ false, anything else is true. **23 keys:**
 | `llm-screen-context` | `on` | Natural-language mode sends the last 40 screen lines and the last command (with exit code) to the LLM; `off` sends only the working directory |
 | `llm-local-model` | `qwen3:1.7b` | Ollama model, for correction and for command generation without a Claude key |
 | `llm-local-url` | `http://127.0.0.1:11434` | Ollama endpoint |
-| `skill-library-dir` | `~/.claude/skills` | Loader sources (tilde expanded). Several folders: comma-separate them, or repeat the key (the first occurrence replaces the default, later ones append) — the order is the 🧩 panel's group order and the priority for duplicate names; the Settings list overrides this |
+| `skill-library-dir` | empty | Loader sources (tilde expanded). Several folders: comma-separate them, or repeat the key (each line appends) — the order is the 🧩 panel's group order and the priority for duplicate names; the Settings list overrides this |
 | `voice-engine` | `auto` | `auto` / `whisper` / `http` / `command` / `off` (aliases: `local` = whisper, `api` / `openai` = http, `cmd` / `exec` = command, `none` / `disabled` = off); Settings overrides this |
 | `voice-language` | `zh` | `zh` / `en` / `auto`; spellings like `zh-CN` keep the part before the dash; Settings overrides this |
 | `voice-punctuation` | `on` | Whether to ask for punctuation; Settings overrides this |
@@ -614,6 +645,7 @@ the terminal (Ctrl+T / W / D all mean something in a shell), so most shortcuts u
 | Open link under pointer | <kbd>⌘</kbd>+click | <kbd>Ctrl</kbd>+click |
 | Pane list sidebar | <kbd>⌘B</kbd> | <kbd>Ctrl+Shift+B</kbd> |
 | 🧩 Loader | <kbd>⌘L</kbd> | <kbd>Ctrl+Shift+L</kbd> |
+| Usage insights | <kbd>⌘I</kbd> | <kbd>Ctrl+Shift+I</kbd> |
 | Settings | <kbd>⌘,</kbd> | <kbd>Ctrl+Shift+,</kbd> |
 | Shortcut reference | <kbd>⌘/</kbd> | <kbd>Ctrl+Shift+/</kbd> |
 

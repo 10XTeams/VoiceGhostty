@@ -181,6 +181,7 @@
 
 - **等输入(橙)。** 命令还在跑、安静了 ≥ 2 秒,而且光标附近十来行里出现了像在提问的文字 —— Claude Code 的「Do you want to…」「Yes, and don't ask again」「Esc to cancel」,通用的 `[y/N]` `(yes/no)` `continue?`,`Password:`,中文的「是否继续」「请输入」等(词表在 `status::looks_like_prompt`,偏保守)。以前这种情况被当成「做完了」或一直黄着;现在是橙灯并**响一声**(TUI 安静本来不响,但看见提问是明确证据),你回答后程序继续输出就回到黄。汇总优先级 橙 > 绿 > 黄 > 蓝。监视线程每 0.5 秒只在命令运行中才读屏幕判断,很便宜。
 - **窗格列表侧边栏。** <kbd>⌘B</kbd>(Linux / Windows <kbd>Ctrl+Shift+B</kbd>)或状态栏的侧边栏按钮,开关状态记在 `settings.json`。左侧一列:每个标签页一个分组(序号 + 标题,点它切标签页),下面列出它的每个分屏:状态灯、目录名、右侧状态文字(执行中 / 已完成 / 等你输入),悬停看终端标题;点一行直接跳到那个分屏。多标签多分屏时找那个橙色的比扫标签栏上的小点快得多。
+  **列表和顶部标签栏二选一**:列表开着时标签栏不显示,标签栏的操作都搬到了列表里 —— 悬停标签页那行出现关闭按钮(中键也行),双击改名,列表末尾是「新标签页」。
 
 - **精确模式。** 一旦见过 shell 集成写的命令边界,就改由它驱动:命令开始 → 黄,命令结束 → 绿,绿灯一直保持到你去看它或
   下一条命令开始。边界**不走 OSC 133**(alacritty_terminal 会丢弃不认识的 OSC),而是 zsh 钩子把 `C <n>` / `D <n>` 写进
@@ -192,8 +193,8 @@
   输出活跃度:在刷屏 = 在干活(黄),静默 ≥ 2 秒 = 该你了(绿)。提示符下 zle 也是 raw,但这个判据只在「有命令在运行」时才查,
   所以那种情况不会误判。
 - **启发式兜底。** 没有 shell 集成(非 zsh)时:终端响铃、或「有过输出后静默 ≥ 2 秒」算完成;近期有输出算忙。
-- 你正在使用的那个单独终端保持中性 —— 终端不该用自己的灯来烦自己 —— 但仅限 VoiceGhostty 在前台、且该标签页没有分屏时。
-  切到别的应用后,这个分屏和其他分屏一样正常推进:它跑完正是你离开时要等的事;切回前台它会重新变蓝。分屏时每格各自
+- 你正在使用的那个单独终端执行中照常亮黄,但不亮绿 / 橙、也不响 —— 终端不该用自己的灯来烦自己 —— 仅限 VoiceGhostty 在前台、且该标签页没有分屏时。
+  切到别的应用后,这个分屏和其他分屏一样正常推进:它跑完正是你离开时要等的事;切回前台绿 / 橙会熄掉。分屏时每格各自
   独立报告;其他标签页里的格子始终照常推进。
 - **转绿提示音**(设置 → 终端 → 完成提示音,默认开,旁边有「试听」)。不用音频文件也不依赖系统音效:用 cpal 输出流
   现场合成 —— E6 / B6 / E7 三个泛音叠加指数衰减,5 ms 起音防「咔哒」,长 0.9 秒,近似玻璃声,各平台一致。限流为每 5 秒
@@ -287,6 +288,23 @@
   没法把会话和分屏对上。鼠标悬停能看到 token 数、模型、会话 id 和文件路径,至少读数是可追溯的。
 
 源文件:`crates/vg-core/src/claude_usage.rs`、`crates/vg-app/src/terminal/proc.rs`(`claude_working_directory`)、`crates/vg-app/src/terminal/session.rs`、`crates/vg-app/src/widgets.rs`(`claude_meter`)
+
+### 12.1 缓存倒计时与用量洞察
+
+- **缓存倒计时**:claude 窗格转绿(等你回复)后,用量条右侧出现 `⏱ 4:12`,是提示缓存剩余时间,从上一次请求算起
+  (会话写过 1 小时缓存就按 1 小时,否则 5 分钟)。最后一分钟变橙,过期后显示「已过期」——下一句会把整段上下文按缓存写重付。
+- **洞察面板**(<kbd>⌘I</kbd> / <kbd>Ctrl+Shift+I</kbd>、状态栏的图表按钮、说「用量」,或点用量条——点用量条会打开会话页并按该项目筛选)。
+  页签:建议 / 用量 / 会话;7 天或 30 天;按 agent、模型(厂家 → 模型,可多选)、项目筛选,对所有页签生效。
+- **台账**:后台线程读 `~/.claude/projects/**`(主对话和 `subagents/agent-*.jsonl`),整理到
+  `~/.config/voiceghostty/usage/YYYY-MM.tsv`,每轮一行,只存数字。每个文件记字节游标;最后一轮每次重新解析、按键保留最新一行,
+  不会重复计数。同一条响应拆成的多条 assistant 记录(`message.id` 相同)只算一次。启动时距上次超过一个周期(默认 60 分钟)就补扫,
+  运行中每个周期一次,打开面板时总是先扫。默认永久保留(Claude Code 约 30 天后会删自己的记录),设置 → 数据 → 用量洞察里可清除。
+- **两个口径,不折算"等效 token"**:Token 总量 = 输入 + 缓存写 + 缓存读 + 输出;折合费用 = 各项 × 该模型官方单价
+  (缓存写 5 分钟 / 1 小时分别为输入价的 1.25× / 2×)。没有单价的模型显示「—」。可在 `settings.json` 的 `insights-prices` 按模型覆盖。
+- **建议(只用规则,不调 LLM)**:缓存过期后接着聊(间隔超过 TTL,且这次写缓存比读缓存多);起步上下文偏重(项目首条请求的上下文
+  ≥ 你所有项目中位数的 1.3 倍)。按预计节省排序,每条可「不再提示」。
+
+源码:`crates/vg-core/src/insights/`、`crates/vg-app/src/insights.rs`、`crates/vg-app/src/insights_panel.rs`
 
 ## 13. Claude Code 加载器(🧩)
 
@@ -393,15 +411,21 @@
 | 终端 | 默认文件夹 | <kbd>⌘T</kbd> 新标签页和启动时第一个窗格的起始目录,默认家目录;文件夹按钮选目录,✕ 恢复为家目录。目录已不存在时回到家目录。分屏不受它影响,跟随原窗格(见第 7 节)。 |
 | 终端 | 项目目录 | ✨ 常用项目「新建项目」在这里建文件夹(见第 14 节);没设就跟随默认文件夹,✕ 恢复为跟随。 |
 | 终端 | 历史行数 | 500–200000 的拖拽数值框,超范围自动夹回;立即应用到已打开的分屏。 |
-| 外观 | 主题 | 四个色块(终端底色 + 三个 ANSI 色点 + 前景色一道),点选即换整套界面,**本次运行有效**;长期修改写配置文件。 |
+| 外观 | 主题 | 四个色块(终端底色 + 三个 ANSI 色点 + 前景色一道),点选即换整套界面并保存(`theme`)。 |
+| 外观 | 终端字体 / 字号 | 字体名(或文件名的一部分)失焦时提交并立即重装字体,找不到时说明文字提示、回退默认等宽字体;字号 8–48,⌘0 回到这里的值。 |
 | 外观 | 命令输入颜色 | 取色器;写入 `~/.config/voiceghostty/input-color`,由 zsh 钩子在所有已打开标签页实时读取生效。 |
+| 语音 | 接口地址 / API Key / 模型 | 引擎选「HTTP 接口」时出现;Key 用密码框。 |
+| 语音 | 识别命令 | 引擎选「外部命令」时出现,`{wav}` / `{lang}` 占位。 |
+| 自然语言 | 模型提供方、带上屏幕内容、转写纠错 | 对应 `llm-provider`、`llm-screen-context`、`correction`。 |
+| 自然语言 | Claude API Key / 模型,Ollama 地址 / 模型 | 对应 `llm-api-key`、`llm-model`、`llm-local-url`、`llm-local-model`。 |
+| 数据 | 会话记录写盘间隔、运行数据位置、用量洞察 | 写盘间隔 1–300 秒(默认 5),立即作用到已打开的窗格;各数据目录可一键打开。 |
 | 加载文件夹 | 文件夹列表 | 🧩 面板的来源目录。**添加文件夹…** 可一次选多个;每行悬停出现「上移(优先级更高)」和「移除」;序号即重名时的优先级;添加当下提示新文件夹里有几项与上面的重名。可以全部移除且会记住 —— 没有文件夹时,🧩 面板只列出项目里已加载的条目。 |
 
-底部一行说明「API 地址、外部识别命令、模型等更多选项写在 `~/.config/voiceghostty/config`」,点路径在文件管理器里打开所在目录;
+底部一行说明「麦克风、热词、按住时长、配色覆盖等其余选项写在 `~/.config/voiceghostty/config`」,点路径在文件管理器里打开所在目录;
 右下角显示版本与提交号(`VoiceGhostty v1.0.0 (abc1234+)`,见第 18 节),悬停看构建时间。
 
 这里改的设置存 `~/.config/voiceghostty/settings.json`(键:`default-language`、`voice-engine`、`adds-punctuation`、`scrollback`、
-`save-history`、`input-color`、`done-sound`、`skill-library-dirs`、`loader-groups-collapsed`、`claude-dirs`、`default-dir`、`projects-dir`)。与配置文件共有的键,
+`save-history`、`input-color`、`done-sound`、`skill-library-dirs`、`loader-groups-collapsed`、`claude-dirs`、`default-dir`、`projects-dir`、`history-save-seconds`、`theme`、`font-family`、`font-size`、`voice-api-url`、`voice-api-key`、`voice-api-model`、`voice-command`、`llm-*`)。文本框失焦才提交,清空即回退配置文件 / 默认值。与配置文件共有的键,
 GUI 设置优先;没在 GUI 里设过的(`null`)回退配置文件。配置文件仍是进阶/兜底路径。每次保存设置也顺手把 `input-color` 文件写一遍。
 
 所有浮窗(设置、🧩 加载器、快捷键表、退出确认)都是 egui 的居中窗口:没有默认标题栏,自绘左对齐标题 + 右上角 ✕,
@@ -437,7 +461,7 @@ GUI 设置优先;没在 GUI 里设过的(`null`)回退配置文件。配置文�
 | `llm-screen-context` | `on` | 自然语言模式把屏幕最后 40 行和上一条命令(含退出码)一起给 LLM;`off` 只给工作目录 |
 | `llm-local-model` | `qwen3:1.7b` | Ollama 模型:矫正,以及没有 Claude Key 时生成命令 |
 | `llm-local-url` | `http://127.0.0.1:11434` | Ollama 服务地址 |
-| `skill-library-dir` | `~/.claude/skills` | 加载器来源目录(支持 `~`)。多个目录:用英文逗号分隔,或重复写这个键(第一次出现替换默认值,之后追加)—— 顺序即 🧩 面板的分组顺序和重名优先级;设置面板的列表优先 |
+| `skill-library-dir` | 空 | 加载器来源目录(支持 `~`)。多个目录:用英文逗号分隔,或重复写这个键(逐行追加)—— 顺序即 🧩 面板的分组顺序和重名优先级;设置面板的列表优先 |
 | `voice-engine` | `auto` | `auto` / `whisper` / `http` / `command` / `off`(别名:`local`=whisper,`api`/`openai`=http,`cmd`/`exec`=command,`none`/`disabled`=off);设置面板的值优先 |
 | `voice-language` | `zh` | `zh` / `en` / `auto`,`zh-CN` 这类写法取横线前的部分;设置面板的值优先 |
 | `voice-punctuation` | `on` | 是否要标点;设置面板的值优先 |
@@ -522,6 +546,7 @@ macOS 用 ⌘ 系;Linux / Windows 上单 Ctrl 组合要留给终端(Ctrl+T / W /
 | 打开指针下的链接 | <kbd>⌘</kbd>+点击 | <kbd>Ctrl</kbd>+点击 |
 | 窗格列表侧边栏 | <kbd>⌘B</kbd> | <kbd>Ctrl+Shift+B</kbd> |
 | 🧩 加载器 | <kbd>⌘L</kbd> | <kbd>Ctrl+Shift+L</kbd> |
+| 用量洞察 | <kbd>⌘I</kbd> | <kbd>Ctrl+Shift+I</kbd> |
 | 设置 | <kbd>⌘,</kbd> | <kbd>Ctrl+Shift+,</kbd> |
 | 快捷键表 | <kbd>⌘/</kbd> | <kbd>Ctrl+Shift+/</kbd> |
 

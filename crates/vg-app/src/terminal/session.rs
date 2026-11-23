@@ -22,6 +22,7 @@ use alacritty_terminal::vte::ansi::Rgb as AnsiRgb;
 
 use vg_core::claude_usage::{ContextUsage, UsageWatcher};
 use vg_core::status::{LastCommand, Observation, ShellMarkTracker, StateFile};
+use vg_core::settings::HISTORY_SAVE_RANGE;
 use vg_core::{paths, shell, SessionStatus, Settings, StatusMachine, Theme};
 
 use super::history::{line_text, SessionLogger};
@@ -104,9 +105,13 @@ struct StatusState {
 
 /// 状态机"安静多久算做完"
 const SILENCE: Duration = Duration::from_secs(2);
-/// 会话记录每 10 次(约 5 秒)写一次;claude 用量每 4 次(约 2 秒)读一次
-const HISTORY_EVERY: u64 = 10;
+/// claude 用量每 4 次(约 2 秒)读一次。会话记录的写盘间隔在设置里调(`history_every`)
 const USAGE_EVERY: u64 = 4;
+
+/// 设置里的写盘秒数 → 监视线程的 tick 数(每 tick 0.5 秒)
+fn history_ticks(seconds: u32) -> u64 {
+    u64::from(seconds.clamp(*HISTORY_SAVE_RANGE.start(), *HISTORY_SAVE_RANGE.end())) * 2
+}
 
 /// 窗格里 UI 线程与监视线程共享的部分
 pub struct PaneShared {
@@ -121,7 +126,9 @@ pub struct PaneShared {
     shell_pid: Option<u32>,
     state_file: PathBuf,
     scrollback: AtomicUsize,
-    /// UI 设置:这是你正盯着的那个窗格(窗口在前台),保持灰色,不拿自己的灯烦自己
+    /// 会话记录每隔多少个 tick 写一次盘
+    history_every: AtomicU64,
+    /// UI 设置:这是你正盯着的那个窗格(窗口在前台)。忙照常亮黄,但不亮绿 / 橙、不响,不拿自己的灯烦自己
     pub neutral: AtomicBool,
 }
 
@@ -177,14 +184,14 @@ impl PaneShared {
             if self.signals.bell.swap(false, Ordering::Relaxed) {
                 st.machine.note_bell();
             }
+            let interactive_app = self.probe.as_ref().and_then(PtyProbe::is_raw_mode) == Some(true);
+            // 只在命令还在跑时才去读屏幕判断是否在提问(每 0.5 s 一次,十来行,很便宜)
+            let prompt_visible = st.machine.is_command_running() && self.screen_looks_like_prompt();
+            let obs = Observation { now: Instant::now(), interactive_app, prompt_visible };
             if self.neutral.load(Ordering::Relaxed) {
-                result.changed = st.machine.reset();
+                result.changed = st.machine.refresh_watched(obs, SILENCE);
             } else {
-                let interactive_app = self.probe.as_ref().and_then(PtyProbe::is_raw_mode) == Some(true);
-                // 只在命令还在跑时才去读屏幕判断是否在提问(每 0.5 s 一次,十来行,很便宜)
-                let prompt_visible = st.machine.is_command_running() && self.screen_looks_like_prompt();
-                let (changed, chime) =
-                    st.machine.refresh(Observation { now: Instant::now(), interactive_app, prompt_visible }, SILENCE);
+                let (changed, chime) = st.machine.refresh(obs, SILENCE);
                 let attention = (chime && st.machine.status.needs_attention())
                     .then(|| (st.machine.status, self.folder_name()));
                 result = TickResult { changed, chime, attention };
@@ -203,7 +210,7 @@ impl PaneShared {
             }
         }
 
-        if n.is_multiple_of(HISTORY_EVERY) {
+        if n.is_multiple_of(self.history_every.load(Ordering::Relaxed).max(1)) {
             self.flush_history(false);
         }
         if n.is_multiple_of(USAGE_EVERY) {
@@ -317,6 +324,7 @@ impl TerminalSession {
             shell_pid,
             state_file,
             scrollback: AtomicUsize::new(scrollback),
+            history_every: AtomicU64::new(history_ticks(settings.history_save_seconds)),
             neutral: AtomicBool::new(false),
         });
 
@@ -345,6 +353,11 @@ impl TerminalSession {
     pub fn set_scrollback(&self, lines: usize) {
         self.shared.scrollback.store(lines, Ordering::Relaxed);
         self.term.lock().set_options(TermConfig { scrolling_history: lines, ..TermConfig::default() });
+    }
+
+    /// 改会话记录的写盘间隔(秒),下一个 tick 起生效
+    pub fn set_history_interval(&self, seconds: u32) {
+        self.shared.history_every.store(history_ticks(seconds), Ordering::Relaxed);
     }
 
     /// ⌘K:发 Ctrl-L,shell 重绘并清屏
@@ -603,12 +616,50 @@ mod tests {
         assert_eq!(s.shared.status(), SessionStatus::Done);
         assert!(chimed, "command end should earn the chime");
 
-        // 你盯着的窗格:归灰
+        // 你盯着的窗格:绿灯不亮,回到平常
         s.shared.neutral.store(true, Ordering::Relaxed);
         s.shared.tick(n);
         assert_eq!(s.shared.status(), SessionStatus::Normal);
         let mut clip = None;
         s.pump_events(&Theme::DARK, &mut clip);
+    }
+
+    /// 输入法组字残留:组字时窗格失焦(结束通知落到别处),或之后直接来了普通文字,残留的拼音都要清掉
+    #[test]
+    fn stale_preedit_is_cleared() {
+        use crate::terminal::view::{self, InputState, ViewOptions};
+        let ctx = egui::Context::default();
+        let size = GridSize { cols: 80, rows: 24, cell_w: 8, cell_h: 16 };
+        let mut s = TerminalSession::spawn(&ctx, size, 1000, &test_settings(), 96, None).unwrap();
+        let mut state = InputState::default();
+        let theme = Theme::DARK;
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 400.0));
+        let frame = |events: Vec<egui::Event>, grab_focus: bool, s: &mut TerminalSession, state: &mut InputState| {
+            let opts = ViewOptions { theme: &theme, font_size: 13.0, hold: Duration::from_millis(250), ptt_enabled: true, ptt_key: egui::Key::Space, grab_focus };
+            let input = egui::RawInput { screen_rect: Some(screen), events, focused: true, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                if !grab_focus {
+                    ui.memory_mut(|m| m.request_focus(egui::Id::new("elsewhere")));
+                }
+                view::show(ui, s, state, &opts);
+            });
+            out.textures_delta.clear();
+        };
+        let preedit = || egui::Event::Ime(egui::ImeEvent::Preedit { text: "OPERA".into(), active_range_chars: None });
+        frame(vec![], true, &mut s, &mut state);
+
+        // 组字中来了普通文字
+        frame(vec![preedit()], true, &mut s, &mut state);
+        assert_eq!(state.preedit, "OPERA");
+        frame(vec![egui::Event::Text("x".into())], true, &mut s, &mut state);
+        assert_eq!(state.preedit, "");
+
+        // 组字中焦点被别的控件拿走
+        frame(vec![preedit()], true, &mut s, &mut state);
+        assert_eq!(state.preedit, "OPERA");
+        frame(vec![], false, &mut s, &mut state);
+        frame(vec![], false, &mut s, &mut state);
+        assert_eq!(state.preedit, "");
     }
 
     /// 选择 + 复制端到端:真实 egui 指针事件双击一个词,再发复制事件,检查剪贴板输出

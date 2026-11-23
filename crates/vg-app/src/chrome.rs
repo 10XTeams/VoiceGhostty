@@ -168,11 +168,16 @@ impl VoiceGhosttyApp {
             self.ws.select_tab(i);
         }
         if let Some(i) = close {
-            drop(self.ws.close_tab(i));
-            if self.ws.tabs.is_empty() {
-                self.quit_confirmed = true;
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-            }
+            self.close_tab_at(ui.ctx(), i);
+        }
+    }
+
+    /// 关掉第 `index` 个标签页;关的是最后一个就退出
+    fn close_tab_at(&mut self, ctx: &egui::Context, index: usize) {
+        drop(self.ws.close_tab(index));
+        if self.ws.tabs.is_empty() {
+            self.quit_confirmed = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
 
@@ -293,7 +298,10 @@ impl VoiceGhosttyApp {
                     ui,
                     Icon::Sidebar,
                     self.settings.show_sidebar,
-                    format!("窗格列表  {}\n所有标签页和分屏的状态:黄 = 执行中,绿 = 已完成,橙 = 等你输入", Action::Sidebar.label()),
+                    format!(
+                        "窗格列表  {}\n在顶部标签栏和左侧列表之间切换;列表里每个分屏一行:蓝 = 空闲,黄 = 执行中,绿 = 已完成,橙 = 等你输入",
+                        Action::Sidebar.label()
+                    ),
                 )
                 .clicked()
                 {
@@ -309,10 +317,24 @@ impl VoiceGhosttyApp {
                 {
                     self.toggle_loader();
                 }
+                if kit::icon_button(
+                    ui,
+                    Icon::Chart,
+                    self.show_insights,
+                    format!("用量洞察  {}\n按模型、项目、会话看 Token 和折合费用,以及省 token 的建议", Action::Insights.label()),
+                )
+                .clicked()
+                {
+                    self.toggle_insights(crate::insights_panel::Tab::Advice, false);
+                }
                 self.projects_menu(ui);
                 if let Some(usage) = usage {
                     ui.add_space(8.0);
-                    widgets::claude_meter(ui, &usage);
+                    let idle = self.active_session().is_some_and(|s| s.shared.status() == vg_core::SessionStatus::Done);
+                    let now = vg_core::insights::time::now_ms();
+                    if widgets::claude_meter(ui, &usage, idle, now).clicked() {
+                        self.toggle_insights(crate::insights_panel::Tab::Sessions, true);
+                    }
                 }
             });
         });
@@ -321,13 +343,19 @@ impl VoiceGhosttyApp {
     // MARK: 窗格列表侧边栏
 
     /// 左侧一列:每个标签页一个分组,下面列出它的分屏,各带状态灯;点一行就跳过去。
-    /// 多标签多分屏时比扫标签栏上的小点快,尤其是找那个橙色「等你输入」的
+    /// 多标签多分屏时比扫标签栏上的小点快,尤其是找那个橙色「等你输入」的。
+    /// 它开着时顶部标签栏不显示,所以标签栏能做的这里都得能做:新建、关闭、双击改名
     pub(crate) fn sidebar(&mut self, ui: &mut Ui) {
         let p = palette(ui.ctx());
         let full = ui.max_rect();
         ui.painter().vline(full.max.x + 6.0 - 0.5, full.y_range().expand(6.0), Stroke::new(1.0, p.border));
         let mut focus: Option<crate::workspace::PaneId> = None;
         let mut select_tab: Option<usize> = None;
+        let mut close_tab: Option<usize> = None;
+        let mut rename_done: Option<(usize, String)> = None;
+        let mut new_tab = false;
+        // 拿出来用完再放回去:闭包里还要调 &self 的方法,不能同时可变借用这个字段
+        let mut renaming = self.renaming.take();
         let active_pane = self.ws.active_pane_id();
         let t = ui.input(|i| i.time) as f32;
         let mut any_busy = false;
@@ -338,19 +366,62 @@ impl VoiceGhosttyApp {
                 let is_active_tab = i == self.ws.active_tab;
                 let title = widgets::truncate(&self.tab_title(i), 22);
                 let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
-                if resp.hovered() {
+                let hovered = ui.rect_contains_pointer(row);
+                if hovered {
                     ui.painter().rect_filled(row, 6.0, alpha(p.hover, 0.6));
                 }
                 let color = if is_active_tab { p.text } else { p.text2 };
-                ui.painter().text(
-                    pos2(row.min.x + 6.0, row.center().y),
-                    Align2::LEFT_CENTER,
-                    format!("{}  {title}", i + 1),
-                    crate::fonts::semibold(12.5),
-                    color,
-                );
-                if resp.clicked() {
-                    select_tab = Some(i);
+                let font = crate::fonts::semibold(12.5);
+                let editing = renaming.as_ref().is_some_and(|(ri, _)| *ri == i);
+                if editing {
+                    ui.painter().text(pos2(row.min.x + 6.0, row.center().y), Align2::LEFT_CENTER, format!("{}", i + 1), font.clone(), color);
+                    let edit_rect = Rect::from_min_max(pos2(row.min.x + 20.0, row.min.y), pos2(row.max.x - 2.0, row.max.y));
+                    let mut finished = None;
+                    if let Some((_, draft)) = renaming.as_mut() {
+                        let edit = ui.put(edit_rect, egui::TextEdit::singleline(draft).font(font).margin(vec2(4.0, 2.0)));
+                        edit.request_focus();
+                        let (enter, esc) = ui.input(|inp| (inp.key_pressed(Key::Enter), inp.key_pressed(Key::Escape)));
+                        if esc {
+                            finished = Some(None);
+                        } else if enter || edit.lost_focus() {
+                            finished = Some(Some(draft.trim().to_string()));
+                        }
+                    }
+                    if let Some(result) = finished {
+                        renaming = None;
+                        if let Some(title) = result {
+                            rename_done = Some((i, title));
+                        }
+                    }
+                } else {
+                    let clip = Rect::from_min_max(row.min, pos2(row.max.x - if hovered { 26.0 } else { 4.0 }, row.max.y));
+                    ui.painter().with_clip_rect(clip).text(
+                        pos2(row.min.x + 6.0, row.center().y),
+                        Align2::LEFT_CENTER,
+                        format!("{}  {title}", i + 1),
+                        font,
+                        color,
+                    );
+                    // 关闭按钮悬停才出现,和标签栏上非当前标签页一样
+                    if hovered {
+                        let close_rect = Rect::from_center_size(pos2(row.max.x - 13.0, row.center().y), vec2(18.0, 18.0));
+                        let c = ui.interact(close_rect, ui.id().with(("side-tab-close", i)), Sense::click());
+                        if c.hovered() {
+                            ui.painter().rect_filled(close_rect, 5.0, p.pressed);
+                        }
+                        icons::paint(ui.painter(), close_rect, 11.0, Icon::Close, if c.hovered() { p.text } else { p.text3 });
+                        if c.on_hover_text("关闭标签页").clicked() {
+                            close_tab = Some(i);
+                        }
+                    }
+                    if resp.double_clicked() {
+                        renaming = Some((i, tab.custom_title.clone().unwrap_or_default()));
+                    } else if resp.clicked() && close_tab.is_none() {
+                        select_tab = Some(i);
+                    }
+                    if resp.middle_clicked() {
+                        close_tab = Some(i);
+                    }
                 }
                 for id in tab.panes() {
                     let Some(pane) = self.ws.panes.get(&id) else { continue };
@@ -392,9 +463,35 @@ impl VoiceGhosttyApp {
                 }
                 ui.add_space(4.0);
             }
+
+            // 新标签页:标签栏不在了,「+」搬到列表末尾
+            let (row, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
+            if resp.hovered() {
+                ui.painter().rect_filled(row, 6.0, alpha(p.hover, 0.6));
+            }
+            let ink = if resp.hovered() { p.text } else { p.text3 };
+            let plus = Rect::from_center_size(pos2(row.min.x + 12.0, row.center().y), vec2(16.0, 16.0));
+            icons::paint(ui.painter(), plus, 12.0, Icon::Plus, ink);
+            ui.painter().text(pos2(row.min.x + 26.0, row.center().y), Align2::LEFT_CENTER, "新标签页", style::body(), ink);
+            ui.painter().text(pos2(row.max.x - 6.0, row.center().y), Align2::RIGHT_CENTER, Action::NewTab.label(), style::small(), p.text3);
+            if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                new_tab = true;
+            }
         });
         if any_busy {
             ui.ctx().request_repaint_after(Duration::from_millis(60));
+        }
+        self.renaming = renaming;
+        if let Some((i, title)) = rename_done {
+            self.ws.tabs[i].custom_title = (!title.is_empty()).then_some(title);
+        }
+        if let Some(i) = close_tab {
+            self.renaming = None; // 下标要变了
+            self.close_tab_at(ui.ctx(), i);
+            return;
+        }
+        if new_tab {
+            self.new_tab(ui.ctx());
         }
         if let Some(i) = select_tab {
             self.ws.select_tab(i);

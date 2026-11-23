@@ -173,6 +173,17 @@ impl StatusMachine {
         changed
     }
 
+    /// 你正盯着的那个窗格:忙照常亮黄(敲下回车就该看到它在干活),但绿 / 橙不亮、也不响——
+    /// 你就在这儿,不需要提醒。返回状态是否变化。
+    pub fn refresh_watched(&mut self, obs: Observation, silence: Duration) -> bool {
+        let old = self.status;
+        self.refresh(obs, silence);
+        if self.status.needs_attention() {
+            self.reset();
+        }
+        self.status != old
+    }
+
     /// 返回 `(状态是否变化, 这次变绿是否值得响提示音)`
     pub fn refresh(&mut self, obs: Observation, silence: Duration) -> (bool, bool) {
         let old = self.status;
@@ -459,6 +470,28 @@ mod tests {
         assert!(m.reset());
         assert_eq!(m.status, SessionStatus::Normal);
         assert!(!m.reset());
+    }
+
+    #[test]
+    fn watched_pane_shows_busy_but_never_attention() {
+        let mut m = StatusMachine::default();
+        let t0 = Instant::now();
+        m.note_command_start();
+        assert!(m.refresh_watched(obs(t0), SILENCE));
+        assert_eq!(m.status, SessionStatus::Busy);
+        m.note_command_end();
+        assert!(m.refresh_watched(obs(t0), SILENCE));
+        assert_eq!(m.status, SessionStatus::Normal);
+        // 做完的那一下已经被你看到了:之后切走也不会补亮绿灯
+        assert_eq!(m.refresh(obs(t0), SILENCE), (false, false));
+        // TUI:有输出 → 黄,安静 → 回到平常;在提问也不亮橙
+        m.note_command_start();
+        m.note_output(t0);
+        let tui = |now| Observation { now, interactive_app: true, prompt_visible: true };
+        m.refresh_watched(tui(t0), SILENCE);
+        assert_eq!(m.status, SessionStatus::Busy);
+        m.refresh_watched(tui(t0 + Duration::from_secs(3)), SILENCE);
+        assert_eq!(m.status, SessionStatus::Normal);
     }
 
     #[test]

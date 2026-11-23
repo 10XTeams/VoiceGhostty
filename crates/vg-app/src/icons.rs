@@ -30,6 +30,8 @@ pub enum Icon {
     Collapse,
     /// 侧边栏:一个框,左边隔出一栏
     Sidebar,
+    /// 用量洞察:三根高低不一的柱子
+    Chart,
 }
 
 struct Pen<'a> {
@@ -124,6 +126,12 @@ pub fn paint(painter: &Painter, rect: Rect, size: f32, icon: Icon, color: Color3
                 pen.dot(x, 8.6, 0.62);
             }
             pen.line(&[(6.0, 9.9), (10.0, 9.9)]);
+        }
+        Icon::Chart => {
+            pen.line(&[(2.0, 14.0), (14.0, 14.0)]);
+            pen.rect(3.0, 8.0, 2.6, 6.0, 0.6);
+            pen.rect(6.8, 3.0, 2.6, 11.0, 0.6);
+            pen.rect(10.6, 6.0, 2.6, 8.0, 0.6);
         }
         Icon::Blocks => {
             pen.rect(2.0, 2.0, 5.0, 5.0, 1.2);

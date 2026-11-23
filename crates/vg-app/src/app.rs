@@ -12,6 +12,8 @@ use vg_core::voice_commands::VoiceCommand;
 use vg_core::{Config, Settings, VoiceEngineKind};
 
 use crate::hotkey::{GlobalHotkey, HotkeyEvent};
+use crate::insights::Insights;
+use crate::insights_panel::{InsightsPanel, Tab as InsightsTab};
 use crate::loader_panel::LoaderPanel;
 use crate::monitor::Monitor;
 use crate::pipeline::{Pipeline, PipelineEvent, VoiceMode};
@@ -43,8 +45,8 @@ const SPLIT_GAP: f32 = 1.0;
 const DIVIDER_HIT: f32 = 4.0;
 /// 自然语言模式带给 LLM 的屏幕行数
 const SCREEN_CONTEXT_LINES: usize = 40;
-const FONT_MIN: f32 = 8.0;
-const FONT_MAX: f32 = 48.0;
+const FONT_MIN: f32 = *vg_core::settings::FONT_SIZE_RANGE.start();
+const FONT_MAX: f32 = *vg_core::settings::FONT_SIZE_RANGE.end();
 
 /// 语音结果往哪里落:终端光标处,或者开始录音时持有焦点的那个文本框(搜索、改名、设置里的输入框)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,7 +83,7 @@ pub struct VoiceGhosttyApp {
     mode: VoiceMode,
     pipeline: Pipeline,
     status: Status,
-    font_size: f32,
+    pub(crate) font_size: f32,
     pub(crate) show_settings: bool,
     /// 「下载语音模型」浮窗;首次启动没有可用引擎时自动打开
     pub(crate) show_model_dialog: bool,
@@ -92,6 +94,10 @@ pub struct VoiceGhosttyApp {
     pub(crate) monitor: Monitor,
     loader: LoaderPanel,
     show_loader: bool,
+    /// 用量洞察:后台整理台账的线程 + 面板
+    pub(crate) insights: Insights,
+    pub(crate) insights_panel: InsightsPanel,
+    pub(crate) show_insights: bool,
     /// 延时依次打进终端的命令。claude 执行第一条斜杠命令时第二条若到达,会停在输入框里不提交,所以要间隔开
     pending_commands: VecDeque<(Instant, String)>,
     /// 设置页添加文件夹后的重名提示
@@ -140,6 +146,9 @@ pub fn effective_config(settings: &Settings) -> Config {
 
 impl VoiceGhosttyApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> VoiceGhosttyApp {
+        if cfg!(test) {
+            vg_core::settings::disable_saving();
+        }
         crate::monitor::clean_stale_state_files();
         let settings = Settings::load();
         let config = effective_config(&settings);
@@ -153,7 +162,12 @@ impl VoiceGhosttyApp {
             std::thread::spawn(move || vg_core::ollama::warm_up(&model, &url));
         }
 
+        // 测试(截图)里不在后台扫描真实记录,数据由测试注入
+        let insights = Insights::start(cc.egui_ctx.clone(), settings.insights_scan_minutes, settings.insights_enabled && !cfg!(test));
         let mut app = VoiceGhosttyApp {
+            insights,
+            insights_panel: InsightsPanel::default(),
+            show_insights: false,
             font_size: config.font_size,
             monitor: Monitor::start(cc.egui_ctx.clone(), settings.done_sound, settings.notify_in_background),
             config,
@@ -418,6 +432,9 @@ impl VoiceGhosttyApp {
         if Loader.consume(ctx) {
             self.toggle_loader();
         }
+        if Insights.consume(ctx) {
+            self.toggle_insights(InsightsTab::Advice, false);
+        }
         if Settings.consume(ctx) {
             self.show_settings = !self.show_settings;
         }
@@ -604,6 +621,11 @@ impl VoiceGhosttyApp {
             }
             VoiceCommand::Dictation => self.mode = VoiceMode::Dictation,
             VoiceCommand::NaturalLanguage => self.mode = VoiceMode::NaturalLanguage,
+            VoiceCommand::Insights => {
+                if !self.show_insights {
+                    self.toggle_insights(InsightsTab::Advice, false);
+                }
+            }
             VoiceCommand::UndoVoice => {
                 if !self.undo_voice() {
                     self.set_status("没有可撤销的语音输入", true);
@@ -660,6 +682,84 @@ impl VoiceGhosttyApp {
         self.show_loader = !self.show_loader;
         if self.show_loader {
             self.loader.open(self.active_cwd().as_deref(), &self.config.skill_library_dirs);
+        }
+    }
+
+    /// 打开 / 关闭用量洞察。打开时总是先扫一次;`this_project` 为 true 时按当前窗格的项目筛选
+    pub(crate) fn toggle_insights(&mut self, tab: InsightsTab, this_project: bool) {
+        if self.show_insights && !this_project {
+            self.show_insights = false;
+            return;
+        }
+        let project = if this_project {
+            self.active_session()
+                .and_then(|s| s.shared.usage())
+                .and_then(|u| self.claude_project(&u))
+        } else {
+            None
+        };
+        self.insights_panel.open(tab, project);
+        self.show_insights = true;
+        self.insights.scan_now();
+    }
+
+    /// 用量条对应的项目:台账里记的是 claude 的工作目录,和 transcript 所在文件夹对得上的那个
+    fn claude_project(&self, usage: &vg_core::claude_usage::ContextUsage) -> Option<String> {
+        let folder = usage.transcript.parent()?.file_name()?.to_string_lossy().into_owned();
+        let snap = self.insights.snapshot();
+        let found = snap.records.iter().rev().find(|r| {
+            let dashed: String = r.project.chars().map(|c| if matches!(c, '/' | '\\' | ':') { '-' } else { c }).collect();
+            dashed == folder || dashed.replace('.', "-") == folder
+        });
+        found.map(|r| r.project.clone()).or_else(|| self.active_cwd().map(|p| p.to_string_lossy().into_owned()))
+    }
+
+    fn insights_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_insights;
+        let snap = self.insights.snapshot();
+        let prices = vg_core::insights::PriceTable::with_overrides(&self.settings.insights_prices);
+        let muted = self.settings.insights_muted_rules.clone();
+        let now = vg_core::insights::time::now_ms();
+        let tz = crate::insights_panel::tz_offset_ms();
+        // 应用窗口比面板窄时跟着收窄
+        let width = crate::insights_panel::PANEL_W.min(ctx.content_rect().width() - 48.0).max(360.0);
+        let mut output = None;
+        crate::kit::window("用量洞察").anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+            ui.set_width(width);
+            let subtitle = match snap.last_scan_ms {
+                Some(_) => "Claude Code 的本地记录 · 只读本机,不调 API · 费用按官方单价折算,仅供比较",
+                None => "Claude Code 的本地记录 · 只读本机,不调 API",
+            };
+            if crate::kit::window_header(ui, "用量洞察", Some(subtitle)) {
+                open = false;
+            }
+            output = Some(self.insights_panel.show(ui, &snap, &prices, &muted, now, tz));
+        });
+        self.show_insights = open;
+        let Some(out) = output else { return };
+        if out.close {
+            self.show_insights = false;
+        }
+        if out.refresh {
+            self.insights.scan_now();
+        }
+        if let Some(rule) = out.mute {
+            self.settings.insights_muted_rules.insert(rule.as_str().to_string());
+            let _ = self.settings.save();
+        }
+        if let Some(cmd) = out.type_command {
+            // 只敲进去不回车,由你决定要不要执行
+            if let Some(s) = self.active_session() {
+                s.type_text(cmd);
+            }
+            self.show_insights = false;
+            self.set_status(format!("已敲入 {cmd},回车执行"), false);
+        }
+        if out.open_loader {
+            self.show_insights = false;
+            if !self.show_loader {
+                self.toggle_loader();
+            }
         }
     }
 
@@ -737,7 +837,7 @@ impl VoiceGhosttyApp {
             if split && !is_active {
                 ui.painter().rect_filled(rect, 0.0, style::alpha(p.chrome, 0.42));
             }
-            // 你正盯着的那个窗格保持灰色;分屏时每个窗格都照常推进(两边都能看到黄/绿)。
+            // 你正盯着的那个窗格只亮黄(忙),不亮绿 / 橙;分屏时每个窗格都照常推进(两边都能看到黄/绿)。
             // 窗口到后台后它恰恰是最值得报告的那个,于是也照常推进
             pane.session.shared.neutral.store(window_focused && is_active && !split, Ordering::Relaxed);
         }
@@ -842,10 +942,13 @@ impl eframe::App for VoiceGhosttyApp {
         }
 
         let p = style::palette(&ctx);
-        egui::Panel::top("tabs")
-            .exact_size(style::BAR_H)
-            .frame(egui::Frame::NONE.fill(p.chrome).inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 0 }))
-            .show(ui, |ui| self.tab_bar(ui));
+        // 标签栏和窗格列表二选一:列表里已经有每个标签页(还带分屏),再留着顶上那排就是同一件事说两遍
+        if !self.settings.show_sidebar {
+            egui::Panel::top("tabs")
+                .exact_size(style::BAR_H)
+                .frame(egui::Frame::NONE.fill(p.chrome).inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 0 }))
+                .show(ui, |ui| self.tab_bar(ui));
+        }
         egui::Panel::bottom("status")
             .exact_size(style::STATUS_H)
             .frame(egui::Frame::NONE.fill(p.chrome).inner_margin(egui::Margin::symmetric(8, 0)))
@@ -870,6 +973,9 @@ impl eframe::App for VoiceGhosttyApp {
         }
         if self.show_loader {
             self.loader_window(&ctx);
+        }
+        if self.show_insights {
+            self.insights_window(&ctx);
         }
         if self.show_help {
             self.help_window(&ctx);

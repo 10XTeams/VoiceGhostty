@@ -45,7 +45,7 @@ Working with [Claude Code](https://claude.com/claude-code) means a lot of "type 
 | 🗣 **Voice commands** | Say just "clear screen", "new tab", "tab 2", "split right" or "undo" and it runs directly, nothing typed, no model call; whole utterances only, so sentences containing those words are unaffected. |
 | 🧠 **Two voice modes** | *Dictation* (verbatim) and *Natural language* (Claude API or local Ollama → command + explanation, optionally with an Ollama cleanup pass first). <kbd>⌘⇧N</kbd> toggles. |
 | 🌏 **Chinese & English** | Recognition language `zh` / `en` / `auto`. Automatic punctuation is on by default; turn it off when you mostly dictate shell commands. |
-| 🚦 **Status lights** | Every tab and pane shows blue / yellow / green / orange — idle, running, finished-and-waiting-on-you, **stuck waiting for your input** (Claude Code asking for permission, `[y/N]`, a password). Exact under zsh via shell integration; inferred from output and bells inside full-screen programs like `claude` or `vim`. The pane you're looking at stays blue; background windows still update. <kbd>⌘B</kbd> opens a pane-list sidebar to spot the orange one at a glance. |
+| 🚦 **Status lights** | Every tab and pane shows blue / yellow / green / orange — idle, running, finished-and-waiting-on-you, **stuck waiting for your input** (Claude Code asking for permission, `[y/N]`, a password). Exact under zsh via shell integration; inferred from output and bells inside full-screen programs like `claude` or `vim`. The pane you're looking at still turns yellow while it works, but skips green / orange; background windows still update. <kbd>⌘B</kbd> swaps the top tab bar for a pane list on the left to spot the orange one at a glance. |
 | 🔔 **Done chime & background notifications** | A synthesized sound the moment a pane turns green, at most once every 5 seconds; when the window is in the background, a system notification also says which folder finished or is waiting for you. Both switchable in Settings. |
 | 🗂 **Tabs & nested splits** | <kbd>⌘T</kbd> / <kbd>⌘W</kbd>, <kbd>⌘1…⌘9</kbd>. <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> split the **active pane** and repeat: three <kbd>⌘D</kbd> give three even columns, a perpendicular split makes a grid; the new pane's shell starts in the original pane's current directory. Drag a separator to resize (double-click to even out), <kbd>⌘⇧↩</kbd> to zoom the active pane. <kbd>⌘⌥</kbd>+arrows move focus across the split tree. Tabs name themselves after their working directory; double-click to rename, middle-click to close. |
 | ↗️ **Move a split to another tab** | <kbd>⌘⌃1…8</kbd> sends the focused pane to the Nth tab, <kbd>⌘⌃←→</kbd> to the neighbouring tab, <kbd>⌘⌃T</kbd> out into a tab of its own. The shell keeps running and scrollback comes along. |
@@ -214,7 +214,7 @@ llm-local-model = qwen3:1.7b   # cleanup; also generates commands when there is 
 llm-local-url   = http://127.0.0.1:11434
 
 # Skill libraries the 🧩 panel lists from (comma-separate or repeat the key for several)
-skill-library-dir = ~/.claude/skills, ~/work/team-skills
+skill-library-dir = ~/work/team-skills, ~/work/my-agents
 ```
 
 Unknown keys and malformed lines are ignored, never an error. Every key is documented in [docs/FEATURES.md](docs/FEATURES.md).

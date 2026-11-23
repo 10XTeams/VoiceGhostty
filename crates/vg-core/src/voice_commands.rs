@@ -22,6 +22,8 @@ pub enum VoiceCommand {
     NaturalLanguage,
     /// 撤销上一次语音上屏的文本
     UndoVoice,
+    /// 打开用量洞察
+    Insights,
 }
 
 impl VoiceCommand {
@@ -41,6 +43,7 @@ impl VoiceCommand {
             VoiceCommand::Dictation => "听写模式".into(),
             VoiceCommand::NaturalLanguage => "自然语言模式".into(),
             VoiceCommand::UndoVoice => "撤销上次语音输入".into(),
+            VoiceCommand::Insights => "用量洞察".into(),
         }
     }
 
@@ -57,6 +60,7 @@ impl VoiceCommand {
             ("搜索", "打开历史搜索"),
             ("听写模式 / 自然语言模式", "切换语音模式"),
             ("撤销", "撤销上一次语音上屏"),
+            ("用量 / 省钱建议", "打开用量洞察"),
         ]
     }
 }
@@ -113,6 +117,11 @@ const FIXED: &[(&str, VoiceCommand)] = &[
     ("上下分屏", VoiceCommand::SplitDown),
     ("下面分屏", VoiceCommand::SplitDown),
     ("splitdown", VoiceCommand::SplitDown),
+    ("用量", VoiceCommand::Insights),
+    ("用量洞察", VoiceCommand::Insights),
+    ("看看用量", VoiceCommand::Insights),
+    ("省钱建议", VoiceCommand::Insights),
+    ("usage", VoiceCommand::Insights),
     ("搜索", VoiceCommand::Find),
     ("查找", VoiceCommand::Find),
     ("搜索历史", VoiceCommand::Find),

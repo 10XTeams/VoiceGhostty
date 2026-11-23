@@ -4,6 +4,7 @@ pub mod claude;
 pub mod claude_usage;
 pub mod config;
 pub mod hotwords;
+pub mod insights;
 pub mod loader;
 pub mod model_download;
 pub mod nl2command;

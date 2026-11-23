@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>VoiceGhostty 用量洞察面板预览</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: #0c0c0d; color: #c9c9c9; padding: 24px 16px 48px;
+    font: 13px/1.45 -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  }
+  .mono { font-family: "SF Mono", Menlo, Consolas, monospace; }
+  .page { max-width: 1280px; margin: 0 auto; }
+  .page-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .page-head h1 { font-size: 15px; font-weight: 600; margin: 0; color: #e8e8e8; }
+  .page-head .note { color: #7a7a7a; font-size: 11.5px; }
+  .spacer { flex: 1; }
+  .theme-pick { display: flex; gap: 6px; }
+  .theme-pick button {
+    font: inherit; font-size: 11.5px; color: #bdbdbd; background: #1c1c1e; border: 1px solid #2c2c2e;
+    border-radius: 7px; padding: 4px 10px; cursor: pointer;
+  }
+  .theme-pick button.on { color: #fff; border-color: #5CC8FF; }
+
+  /* ===== 应用窗口(颜色全部来自 style.rs 的 Palette 推导)===== */
+  .app {
+    position: relative; height: 820px; border-radius: 12px; overflow: hidden;
+    background: var(--term); color: var(--text); border: 1px solid var(--border);
+    display: flex; flex-direction: column;
+  }
+  .tabbar { height: 40px; background: var(--chrome); display: flex; align-items: flex-end; padding: 0 10px; gap: 2px; flex: none; }
+  .tab { height: 28px; padding: 0 12px; display: flex; align-items: center; gap: 8px; border-radius: 7px 7px 0 0; color: var(--text2); font-size: 15px; white-space: nowrap; }
+  .tab.on { background: var(--term); color: var(--text); }
+  .tab .n { color: var(--text3); font-size: 11.5px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; display: inline-block; }
+  .term { flex: 1; padding: 6px 10px; font-size: 12.5px; line-height: 1.5; color: var(--text2); overflow: hidden; white-space: pre; }
+  .term .hl { color: var(--accent); }
+  .term .typed { color: var(--text); }
+  .statusbar { height: 34px; background: var(--chrome); display: flex; align-items: center; padding: 0 10px; gap: 10px; flex: none; font-size: 11.5px; }
+  .statusbar .msg { color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .statusbar .msg b { color: var(--accent); font-weight: 500; cursor: pointer; }
+  .statusbar .right { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: none; }
+  .meter { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 3px 6px; border-radius: 7px; white-space: nowrap; }
+  .meter:hover { background: var(--hover); }
+  .meter .name { color: var(--text3); font-weight: 500; }
+  .meter .bar { width: 48px; height: 4px; border-radius: 2px; background: var(--control); overflow: hidden; }
+  .meter .bar i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+  .meter .num { color: var(--text3); font-size: 11px; }
+  .meter .pct { color: var(--text2); font-weight: 500; }
+  .meter .ttl { color: var(--warn); font-weight: 500; }
+  .ibtn { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; color: var(--text2); cursor: pointer; flex: none; }
+  .ibtn:hover, .ibtn.on { background: var(--hover); color: var(--text); }
+  .ibtn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .seg { display: inline-flex; background: var(--control); border-radius: 8px; padding: 2px; height: 24px; flex: none; }
+  .seg button {
+    font: inherit; font-size: 12px; font-weight: 500; color: var(--text2); background: none; border: 0;
+    padding: 0 11px; border-radius: 6px; cursor: pointer; white-space: nowrap;
+  }
+  .seg button:hover { color: var(--text); }
+  .seg button.on { background: var(--seg-on); color: var(--text); box-shadow: 0 .5px 0 rgba(0,0,0,.25); }
+
+  /* ===== 浮窗 ===== */
+  .win {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -52%);
+    width: 936px; max-width: calc(100% - 24px); padding: 18px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: 0 12px 36px var(--shadow);
+  }
+  .win-head { display: flex; align-items: flex-start; margin-bottom: 8px; }
+  .win-head .t { font-size: 15px; font-weight: 600; color: var(--text); }
+  .win-head .s { font-size: 11.5px; color: var(--text3); margin-top: 2px; }
+  .win-head .ibtn { margin-left: auto; width: 24px; height: 24px; }
+  .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .filters { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; font-size: 11.5px; color: var(--text3); }
+  .filters label, .filters .lbl { display: flex; align-items: center; gap: 6px; }
+  select, .mbtn {
+    font: inherit; font-size: 12px; color: var(--text); background: var(--control); border: 1px solid var(--card-border);
+    border-radius: 7px; height: 26px; padding: 0 24px 0 9px; cursor: pointer; appearance: none; -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+    background-position: calc(100% - 13px) 11px, calc(100% - 9px) 11px; background-size: 4px 4px; background-repeat: no-repeat;
+  }
+  select:hover, .mbtn:hover { background-color: var(--hover); }
+  select.active, .mbtn.active { border-color: var(--accent); }
+  .msel { position: relative; }
+  .mpop { position: absolute; top: 30px; left: 0; z-index: 5; min-width: 216px; padding: 5px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 8px 24px var(--shadow); color: var(--text); font-size: 12px; }
+  .mrow { display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 8px 0 26px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+  .mrow:hover { background: var(--hover); }
+  .mrow.vend { padding-left: 8px; font-weight: 600; }
+  .mrow .sw { margin-right: 0; }
+  .mrow .cnt { margin-left: auto; padding-left: 14px; font-weight: 400; color: var(--text3); font-size: 11px; }
+  .cb { flex: none; width: 13px; height: 13px; border-radius: 3.5px; border: 1px solid var(--text3); position: relative; }
+  .cb.on, .cb.part { background: var(--accent); border-color: var(--accent); }
+  .cb.on::after { content: ''; position: absolute; left: 3.5px; top: 1px; width: 3px; height: 6px; border: solid var(--surface); border-width: 0 1.6px 1.6px 0; transform: rotate(45deg); }
+  .cb.part::after { content: ''; position: absolute; left: 2.5px; right: 2.5px; top: 5px; height: 1.6px; background: var(--surface); }
+  .mfoot { display: flex; justify-content: space-between; margin-top: 4px; padding: 6px 8px 2px; border-top: 1px solid var(--card-border); font-size: 11px; color: var(--text3); }
+  .clear { color: var(--accent); cursor: pointer; }
+  .body { height: 520px; overflow-y: auto; padding-right: 4px; }
+  .body::-webkit-scrollbar { width: 8px; }
+  .body::-webkit-scrollbar-thumb { background: var(--hover); border-radius: 4px; }
+  .pane { display: none; }
+  .pane.on { display: block; }
+
+  .card { background: var(--card); border: 1px solid var(--card-border); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
+  .advice .row1 { display: flex; align-items: center; gap: 8px; }
+  .advice .title { font-weight: 500; color: var(--text); }
+  .advice .tag { font-size: 10.5px; color: var(--text3); border: 1px solid var(--card-border); border-radius: 5px; padding: 0 6px; }
+  .advice .save { margin-left: auto; font-weight: 500; color: var(--text); white-space: nowrap; }
+  .advice .ev { font-size: 11.5px; color: var(--text3); margin: 3px 0 0 15px; }
+  .advice .sug { color: var(--text2); margin: 4px 0 0 15px; }
+  .advice .acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+  .btn {
+    font: inherit; font-size: 12.5px; font-weight: 500; height: 28px; min-width: 72px; padding: 0 14px;
+    border-radius: 7px; border: 1px solid var(--card-border); background: var(--control); color: var(--text); cursor: pointer;
+  }
+  .btn:hover { background: var(--hover); }
+  .btn.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .empty { color: var(--text3); text-align: center; padding: 60px 0; }
+
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .kpi .l { font-size: 11.5px; color: var(--text3); }
+  .kpi .v { font-size: 18px; font-weight: 600; color: var(--text); margin-top: 2px; white-space: nowrap; }
+  .sec { font-size: 11.5px; font-weight: 600; color: var(--text3); margin: 12px 0 6px; display: flex; align-items: center; gap: 8px; min-height: 24px; }
+  .sec .hint { font-weight: 400; }
+  .chart { height: 130px; display: flex; align-items: flex-end; gap: 4px; border-bottom: 1px solid var(--card-border); }
+  .chart .col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; min-width: 0; }
+  .chart .col:hover .stack { filter: brightness(1.15); }
+  .chart .stack { display: flex; flex-direction: column-reverse; border-radius: 3px 3px 0 0; overflow: hidden; }
+  .chart .nodata { border-top: 1px dashed var(--text3); height: 1px; opacity: .6; }
+  .xaxis { display: flex; gap: 4px; margin-top: 4px; }
+  .xaxis span { flex: 1; text-align: center; font-size: 10.5px; color: var(--text3); min-width: 0; white-space: nowrap; }
+  .legend { display: flex; gap: 14px; font-size: 11.5px; color: var(--text2); flex-wrap: wrap; margin-top: 8px; }
+  .legend i, .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+  .two { display: grid; grid-template-columns: 3fr 2fr; gap: 10px; align-items: start; }
+  .tbl .row { display: grid; gap: 10px; align-items: center; padding: 5px 6px; margin: 0 -6px; border-radius: 6px; font-size: 11.5px; }
+  .tbl .row.pick { cursor: pointer; }
+  .tbl .row.pick:hover { background: var(--hover); }
+  .tbl .row.sel { background: var(--sel); }
+  .tbl .row.off { opacity: .45; }
+  .tbl .th { font-size: 10.5px; color: var(--text3); padding-top: 0; }
+  .tbl .r { text-align: right; color: var(--text2); white-space: nowrap; }
+  .tbl .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+  .tbl .row.vend .nm { font-weight: 600; }
+  .tbl .row.sub .nm { padding-left: 12px; }
+  .models .row { grid-template-columns: 112px 34px 48px 50px 1fr 46px 58px 34px; gap: 8px; }
+  .projs .row { grid-template-columns: 92px 1fr 48px 50px 34px; gap: 8px; }
+  .subs .row { grid-template-columns: 190px 44px 60px 62px 1fr 64px 76px; gap: 8px; }
+  .skills .row { grid-template-columns: 230px 44px 44px 70px 70px 1fr; gap: 8px; }
+  .tbl .row.grp .nm { font-weight: 600; }
+  .agtag { font-size: 10.5px; font-weight: 500; margin-left: 6px; }
+  .note { font-size: 11px; color: var(--text3); margin: 2px 2px 0; line-height: 1.5; }
+  .pbar { height: 4px; border-radius: 2px; background: var(--control); overflow: hidden; }
+  .pbar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+
+  .sess { border-bottom: 1px solid var(--card-border); }
+  .sess:last-child { border-bottom: 0; }
+  .sess .head, .sesshead { display: grid; grid-template-columns: 14px 92px 100px 52px 110px 1fr 50px 66px 62px 66px 96px; gap: 8px; align-items: center; font-size: 11.5px; }
+  .sess .head { padding: 7px 0; cursor: pointer; }
+  .sesshead { font-size: 10.5px; color: var(--text3); padding-bottom: 4px; border-bottom: 1px solid var(--card-border); }
+  .sess .head:hover { color: var(--text); }
+  .sess .chev { color: var(--text3); transition: transform .12s; font-size: 10px; }
+  .sess.open .chev { transform: rotate(90deg); }
+  .sess .ag { font-weight: 500; }
+  .sess .model { color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .r { text-align: right; white-space: nowrap; }
+  .sess .r { color: var(--text2); }
+  .turns { display: none; padding: 2px 0 8px 22px; }
+  .sess.open .turns { display: block; }
+  .turn, .colhead { display: grid; grid-template-columns: 34px 92px 72px 64px 64px 60px 1fr 110px; gap: 8px; }
+  .turn { font-size: 11px; color: var(--text2); padding: 2px 0; }
+  .colhead { font-size: 10.5px; color: var(--text3); padding-bottom: 2px; }
+  .dim { color: var(--text3); }
+  .hot { color: var(--warn); }
+
+  #tip {
+    position: fixed; z-index: 10; pointer-events: none; display: none; white-space: pre-line;
+    background: #111; color: #e6e6e6; border: 1px solid #333; border-radius: 7px; padding: 6px 9px; font-size: 11.5px;
+    box-shadow: 0 6px 18px rgba(0,0,0,.4); max-width: 380px;
+  }
+  .states { margin-top: 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; }
+  .state { background: var(--chrome); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; color: var(--text); }
+  .state .cap { font-size: 11.5px; color: var(--text3); margin-bottom: 4px; }
+  .state .meter { cursor: default; padding-left: 0; font-size: 11.5px; flex-wrap: wrap; }
+  .state .meter:hover { background: none; }
+  h2 { font-size: 13px; font-weight: 600; color: #e0e0e0; margin: 22px 0 0; }
+</style>
+</head>
+<body>
+<div class="page" id="root">
+  <div class="page-head">
+    <h1>用量洞察面板预览</h1>
+    <span class="note">全部为示例数据 · 配色按 style.rs 的 Palette 规则从终端主题推导</span>
+    <span class="spacer"></span>
+    <div class="theme-pick" id="themes"></div>
+  </div>
+
+  <div class="app">
+    <div class="tabbar">
+      <div class="tab on"><span class="n">1</span><span class="dot" style="background:var(--done)"></span>VoiceGhostty</div>
+      <div class="tab"><span class="n">2</span><span class="dot" style="background:var(--busy)"></span>Opera</div>
+      <div class="tab"><span class="n">3</span><span class="dot" style="background:var(--accent)"></span>~</div>
+    </div>
+    <div class="term mono" id="term"></div>
+    <div class="statusbar">
+      <div class="seg"><button class="on">听写</button><button>自然语言</button></div>
+      <div class="msg" id="msg">缓存已过期,下一句要重付 65K · 建议 <b data-open="0">/clear</b> · <b data-open="0">看看</b></div>
+      <div class="right">
+        <div class="meter" id="meter" data-tip="上下文:65,412 / 1,000,000 tokens(7%)&#10;上一轮 1 分 22 秒 · 思考 18 秒 · 工具 41 秒&#10;本会话累计 6.1M tokens · 约 $9.50 · 缓存 2:14 后过期&#10;点击查看这个项目的会话">
+          <span class="name">claude</span><span class="bar"><i style="width:7%"></i></span>
+          <span class="num mono">65K / 1M</span><span class="pct">7%</span><span class="ttl mono">⏱ 2:14</span>
+        </div>
+        <div class="ibtn on" id="chartbtn" data-tip="用量洞察  ⌘I">
+          <svg viewBox="0 0 16 16"><path d="M2.5 13.5h11M4.5 11V8M8 11V3.5M11.5 11V6"/></svg>
+        </div>
+        <div class="ibtn" data-tip="加载器  ⌘L"><svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg></div>
+        <div class="ibtn" data-tip="设置  ⌘,"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1"/></svg></div>
+      </div>
+    </div>
+
+    <div class="win" id="win">
+      <div class="win-head">
+        <div><div class="t">用量洞察</div><div class="s" id="sub"></div></div>
+        <div class="ibtn" id="close" data-tip="关闭(Esc)"><svg viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg></div>
+      </div>
+      <div class="toolbar">
+        <div class="seg" id="tabs"></div>
+        <span class="spacer"></span>
+        <div class="seg" id="range"><button data-r="7" class="on">7 天</button><button data-r="30">30 天</button></div>
+        <div class="ibtn" id="rescan" data-tip="重新整理"><svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v2.4h-2.4"/></svg></div>
+      </div>
+      <div class="filters" id="filters"></div>
+      <div class="body">
+        <div class="pane" id="p0"></div>
+        <div class="pane" id="p1"></div>
+        <div class="pane" id="p2"></div>
+        <div class="pane" id="p3"></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>状态栏用量条的几种状态</h2>
+  <div class="states">
+    <div class="state"><div class="cap">Claude · 正常</div>
+      <div class="meter"><span class="name">claude</span><span class="bar"><i style="width:7%"></i></span><span class="num mono">65K / 1M</span><span class="pct">7%</span></div></div>
+    <div class="state"><div class="cap">Claude · 等你回复,缓存不到 1 分钟过期</div>
+      <div class="meter"><span class="name">claude</span><span class="bar"><i style="width:7%"></i></span><span class="num mono">65K / 1M</span><span class="pct">7%</span><span class="ttl mono">⏱ 0:48</span></div></div>
+    <div class="state"><div class="cap">Claude · 缓存已过期</div>
+      <div class="meter"><span class="name">claude</span><span class="bar"><i style="width:7%"></i></span><span class="num mono">65K / 1M</span><span class="pct">7%</span><span class="num">已过期</span></div></div>
+    <div class="state"><div class="cap">Codex · 显示套餐额度,不显示缓存倒计时</div>
+      <div class="meter"><span class="name">codex</span><span class="bar"><i style="width:10%"></i></span><span class="num mono">26K / 258K</span><span class="pct">10%</span><span class="ttl">额度 5h 82%</span><span class="num">周 31%</span></div></div>
+  </div>
+</div>
+<div id="tip"></div>
+
+<script>
+// ---------- 主题:与 vg-core/src/theme.rs、vg-app/src/style.rs 的推导一致 ----------
+const THEMES = {
+  Dark: { fg: '#d4d4d4', bg: '#1e1e1e' },
+  Light: { fg: '#1a1a1a', bg: '#ffffff' },
+  'Solarized Dark': { fg: '#839496', bg: '#002b36' },
+  Dracula: { fg: '#f8f8f2', bg: '#282a36' },
+};
+const rgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+const hex = c => '#' + c.map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+const rgba = (c, a) => `rgba(${c.map(Math.round).join(',')},${a})`;
+function palette(theme) {
+  const term = rgb(theme.bg), fg = rgb(theme.fg), K = [0, 0, 0], W = [255, 255, 255];
+  const dark = 0.299 * term[0] + 0.587 * term[1] + 0.114 * term[2] < 128;
+  const p = dark ? {
+    chrome: mix(term, K, .22), surface: mix(term, W, .045), control: mix(term, W, .075), hover: mix(term, W, .11),
+    pressed: mix(term, W, .15), border: mix(term, W, .10), text: mix(fg, W, .25), text2: mix(fg, term, .36), text3: mix(fg, term, .58),
+    accent: rgb('#5CC8FF'), busy: rgb('#F2B544'), done: rgb('#3CCB7F'), warn: rgb('#F0A23B'), error: rgb('#FF6B6B'),
+  } : {
+    chrome: mix(term, K, .045), surface: term, control: mix(term, K, .055), hover: mix(term, K, .085),
+    pressed: mix(term, K, .12), border: mix(term, K, .12), text: mix(fg, K, .2), text2: mix(fg, term, .40), text3: mix(fg, term, .60),
+    accent: rgb('#0A76CC'), busy: rgb('#C78610'), done: rgb('#1F9D5A'), warn: rgb('#C26D0A'), error: rgb('#D13434'),
+  };
+  const vars = { term: hex(term) };
+  for (const k in p) vars[k] = hex(p[k]);
+  vars.card = hex(dark ? mix(p.surface, W, .025) : p.chrome);
+  vars['card-border'] = rgba(p.border, .7);
+  vars['seg-on'] = hex(dark ? p.pressed : term);
+  vars['on-accent'] = dark ? 'rgb(8,22,34)' : '#fff';
+  vars.sel = rgba(p.accent, .16);
+  vars.shadow = dark ? 'rgba(0,0,0,.47)' : 'rgba(0,0,0,.16)';
+  vars.agent2 = dark ? '#B48CF2' : '#7A4FD0';
+  return vars;
+}
+const root = document.getElementById('root');
+function applyTheme(name) {
+  const v = palette(THEMES[name]);
+  for (const k in v) root.style.setProperty('--' + k, v[k]);
+  document.querySelectorAll('#themes button').forEach(b => b.classList.toggle('on', b.textContent === name));
+}
+document.getElementById('themes').innerHTML = Object.keys(THEMES).map(n => `<button>${n}</button>`).join('');
+document.getElementById('themes').onclick = e => e.target.tagName === 'BUTTON' && applyTheme(e.target.textContent);
+
+// ---------- 示例数据:一张"天 × 项目 × 模型"的明细表,所有视图都从它按筛选条件聚合 ----------
+const fmt = k => k >= 1000 ? (k / 1000).toFixed(1) + 'M' : Math.round(k) + 'K';
+const fmtCost = v => '$' + (v >= 100 ? Math.round(v) : v.toFixed(2));
+const fmtDur = s => { s = Math.round(s);
+  if (s < 60) return s + ' 秒';
+  if (s < 3600) return Math.floor(s / 60) + ' 分' + (s % 60 && s < 600 ? ' ' + String(s % 60).padStart(2, '0') + ' 秒' : '');
+  return Math.floor(s / 3600) + ' 小时 ' + String(Math.floor(s % 3600 / 60)).padStart(2, '0') + ' 分'; };
+let seed = 11;
+const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+// token 一律是原始数量(输入 + 缓存写 + 缓存读 + 输出直接相加);费用按单价表折算。
+// pin 是示例输入单价($ / 百万 token),不是真实报价;RATE 是输入 / 缓存写 / 缓存读 / 输出相对输入价的倍率。
+const RATE = [1, 1.25, .1, 5];
+const MODELS = {            // 厂家、示例输入单价、每轮用量基数、每轮耗时(秒)、图表颜色
+  'fable-5-2':   { vendor: 'Anthropic', agent: 'claude', pin: 5,  per: 62,  dur: 46, color: '--accent' },
+  'opus-5-5':    { vendor: 'Anthropic', agent: 'claude', pin: 15, per: 105, dur: 72, color: '--warn' },
+  'haiku-5-5':   { vendor: 'Anthropic', agent: 'claude', pin: 1,  per: 14,  dur: 8,  color: '--done' },
+  'gpt-6-astra': { vendor: 'OpenAI',    agent: 'codex',  pin: 2,  per: 38,  dur: 31, color: '--agent2' },
+  'gpt-6-mini':  { vendor: 'OpenAI',    agent: 'codex',  pin: .5, per: 12,  dur: 7,  color: '--text2' },
+  'codex-auto-review': { vendor: 'OpenAI', agent: 'codex', pin: 1, per: 30, dur: 8, color: '--busy' },   // 只出现在 guardian 子代理里
+};
+const PROJ = {              // 项目权重、各模型在项目里的占比
+  VoiceGhostty: [.45, { 'fable-5-2': .58, 'opus-5-5': .30, 'haiku-5-5': .05, 'gpt-6-astra': .07 }],
+  Opera:        [.25, { 'opus-5-5': .60, 'fable-5-2': .30, 'haiku-5-5': .10 }],
+  V3D:          [.12, { 'fable-5-2': .70, 'haiku-5-5': .30 }],
+  posewear:     [.18, { 'gpt-6-astra': .66, 'gpt-6-mini': .22, 'fable-5-2': .12 }],
+};
+const END = new Date(2026, 10, 22);
+const DAYS = [], FACTS = [];
+for (let i = 0; i < 30; i++) {
+  const d = new Date(END); d.setDate(END.getDate() - (29 - i));
+  const wd = d.getDay(), gap = i >= 4 && i <= 6;                      // 示例:有三天没有数据
+  DAYS.push({ i, date: `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')}`, wd: '日一二三四五六'[wd], gap });
+  const scale = gap ? 0 : (wd === 0 || wd === 6 ? .45 : 1) * (.5 + rnd());
+  for (const proj in PROJ) for (const model in PROJ[proj][1]) {
+    const m = MODELS[model], base = 1700 * scale * PROJ[proj][0] * PROJ[proj][1][model] * (.6 + rnd() * .8);
+    const codex = m.agent === 'codex', j = () => .8 + rnd() * .4;
+    let parts = [.05 * j(), codex ? 0 : .35 * j(), (codex ? .5 : .28) * j(), (codex ? .45 : .32) * j()];
+    const s = parts.reduce((a, b) => a + b); parts = parts.map(v => v / s * base);
+    const turns = base ? Math.max(1, Math.round(base / m.per * j())) : 0;
+    const tk = parts.map((v, n) => v / RATE[n]), cs = parts.map(v => v * m.pin / 1000);
+    FACTS.push({ day: i, proj, model, agent: m.agent, in: tk[0], cw: tk[1], cr: tk[2], out: tk[3], cIn: cs[0], cCw: cs[1], cCr: cs[2], cOut: cs[3],
+      tok: tk.reduce((a, b) => a + b), cost: cs.reduce((a, b) => a + b), turns, wait: turns * m.dur * j() });
+  }
+}
+const ADVICE = [
+  { sev: 'error', agent: 'claude', title: '缓存过期后继续对话', save: 2.9, ev: '本周 9 次,每次平均重付 64K 上下文', sug: '离开前先 /compact,或回来后直接 /clear', act: '输入 /compact', cmd: '/compact' },
+  { sev: 'warn', agent: 'claude', model: 'opus-5-5', title: '大模型在处理简单对话', save: 2.1, ev: 'opus-5-5 有 37 轮没有工具调用且输出不到 300 token', sug: '这类问答切到 haiku-5-5,或在提问前用 /model 换模型', act: '只看这个模型', filter: { model: 'opus-5-5' } },
+  { sev: 'warn', agent: 'claude', proj: 'VoiceGhostty', title: '起步上下文偏重', save: 1.55, ev: 'VoiceGhostty 每个新会话开场 38K,其中技能与插件占 12K', sug: '在加载器里停用这个项目用不到的技能', act: '打开加载器' },
+  { sev: 'warn', agent: 'codex', model: 'gpt-6-astra', title: '5 小时额度多次接近上限', save: 0, ev: '本周 3 次用到 80% 以上,最近一次在 11-21 下午', sug: '长任务前先 /new 开新会话,或调低推理强度', act: '只看 codex', filter: { agent: 'codex' } },
+  { sev: 'accent', agent: 'claude', title: '等确认占用了较多时间', save: 0, ev: '本周橙灯共 14 分钟,其中 11 分钟是只读命令', sug: '把常用只读命令加进允许列表', act: '查看会话', tab: 2 },
+];
+const SESSIONS = [
+  ['11-22 09:12', 'VoiceGhostty', 'fable-5-2', 9], ['11-21 16:40', 'Opera', 'opus-5-5', 12], ['11-21 10:43', 'VoiceGhostty', 'opus-5-5', 14],
+  ['11-21 05:14', 'posewear', 'gpt-6-astra', 1], ['11-20 21:30', 'VoiceGhostty', 'fable-5-2', 6], ['11-20 14:02', 'Opera', 'opus-5-5', 21],
+  ['11-20 09:05', 'V3D', 'haiku-5-5', 8], ['11-19 20:11', 'posewear', 'gpt-6-mini', 7], ['11-19 11:26', 'VoiceGhostty', 'gpt-6-astra', 4],
+  ['11-18 15:48', 'V3D', 'fable-5-2', 10], ['11-18 10:02', 'VoiceGhostty', 'fable-5-2', 17],
+].map(([t, proj, model, n]) => {
+  const m = MODELS[model], tools = ['Bash', 'Read', 'Grep', 'Edit'];
+  const turns = Array.from({ length: n }, (_, k) => {
+    const big = rnd() < .18, dur = m.dur * (big ? 4 + rnd() * 4 : .2 + rnd() * 1.6), nt = big ? 8 + Math.floor(rnd() * 24) : Math.floor(rnd() * 6);
+    return { k: k + 1, dur, think: dur * (.1 + rnd() * .25), ctx: m.per * (big ? 1.2 + rnd() : .05 + rnd() * .6), out: (big ? 3 : .3) * (1 + rnd() * 3), nt,
+      max: nt ? `${tools[Math.floor(rnd() * 4)]} ${Math.round((big ? 18 : 2) * (1 + rnd() * 2))}K` : '', wait: nt && rnd() < .22 ? 15 + rnd() * 150 : 0, hot: big };
+  });
+  const base = turns.reduce((a, x) => a + x.ctx, 0) * 2.1;
+  return { t, proj, model, agent: m.agent, n, turns, dur: turns.reduce((a, x) => a + x.dur, 0), tok: base * 3.2, cost: base * m.pin / 1000, peak: 36 + turns.reduce((a, x) => a + x.ctx, 0) };
+});
+
+// 子代理:每次启动有自己的记录文件,token / 模型 / 耗时都是实际值。
+// Claude:<会话 id>/subagents/agent-*.jsonl;Codex:独立的 rollout 文件,session_meta.parent_thread_id 指向父会话。
+// 字段:agent、每周大约次数、每次 token(K)、每次耗时(秒)、模型占比
+const SUBTYPES = {
+  'Explore':         ['claude', 30, 180, 48,  { 'haiku-5-5': .6, 'fable-5-2': .4 }],
+  'general-purpose': ['claude', 7,  420, 150, { 'fable-5-2': .7, 'opus-5-5': .3 }],
+  'Plan':            ['claude', 4,  260, 95,  { 'opus-5-5': 1 }],
+  'code-reviewer':   ['claude', 5,  300, 110, { 'fable-5-2': 1 }],
+  'guardian':        ['codex',  12, 28,  9,   { 'codex-auto-review': 1 }],     // 自动审批,thread_source: guardian_review
+  'spawn_agent':     ['codex',  3,  240, 120, { 'gpt-6-astra': .8, 'gpt-6-mini': .2 }],
+};
+// 技能:没有独立用量,只有触发事件。字段:agent、每周大约次数、每次加载进上下文的体积(K token)、触发时主对话所用模型的占比
+// Codex 没有 Skill 工具,触发是从"用 shell 读 SKILL.md"推断的。
+const SKILLS = {
+  'dataviz':                       ['claude', 9,  4.2, { 'fable-5-2': .7, 'opus-5-5': .3 }],
+  'claude-api':                    ['claude', 6,  9.5, { 'fable-5-2': .5, 'opus-5-5': .5 }],
+  'run':                           ['claude', 14, 1.8, { 'fable-5-2': .6, 'haiku-5-5': .4 }],
+  'code-review':                   ['claude', 5,  6.1, { 'opus-5-5': 1 }],
+  'microsoft-docs:microsoft-docs': ['claude', 3,  2.4, { 'fable-5-2': 1 }],
+  'visualize':                     ['codex',  5,  7.7, { 'gpt-6-astra': 1 }],
+  'imagegen':                      ['codex',  4,  3.1, { 'gpt-6-astra': .8, 'gpt-6-mini': .2 }],
+  'pdf':                           ['codex',  3,  5.2, { 'gpt-6-astra': 1 }],
+  'documents':                     ['codex',  2,  6.4, { 'gpt-6-astra': 1 }],
+};
+const EXT_PROJ = { claude: ['VoiceGhostty', 'Opera', 'V3D'], codex: ['posewear', 'VoiceGhostty'] };
+const SUBF = [], SKILLF = [];
+const times = (per, w, wk, share) => Math.floor(per / 7 * w * wk * share * (.4 + rnd() * 1.2) + rnd());
+for (const d of DAYS) { if (d.gap) continue;
+  const wk = d.wd === '日' || d.wd === '六' ? .4 : 1;
+  for (const name in SUBTYPES) { const [agent, per, tok, dur, mix] = SUBTYPES[name];
+    for (const proj of EXT_PROJ[agent]) { const w = PROJ[proj][0] / .82;
+      for (const model in mix) { const n = times(per, w, wk, mix[model]); if (!n) continue;
+        const t = n * tok * (.6 + rnd() * .8);
+        SUBF.push({ day: d.i, proj, name, model, agent, n, tok: t, cost: t / 3.2 * MODELS[model].pin / 1000, dur: n * dur * (.6 + rnd() * .8) }); } } }
+  for (const name in SKILLS) { const [agent, per, load, mix] = SKILLS[name];
+    for (const proj of EXT_PROJ[agent]) { const w = PROJ[proj][0] / .82;
+      for (const model in mix) { const n = times(per, w, wk, mix[model]); if (!n) continue;
+        SKILLF.push({ day: d.i, proj, name, model, agent, n, sess: Math.max(1, Math.round(n * (.6 + rnd() * .4))), load: n * load }); } } }
+}
+
+// ---------- 状态 ----------
+const $ = id => document.getElementById(id);
+let tab = 0, range = 7, mode = 0, unit = 0, sort = 0, mopen = false, openSess = 0, advice = ADVICE.slice();
+const F = { agent: '', models: new Set(), proj: '' };   // models 为空表示全部
+const VENDORS = [...new Set(Object.values(MODELS).map(m => m.vendor))];
+const vendorModels = v => Object.keys(MODELS).filter(m => MODELS[m].vendor === v && (!F.agent || MODELS[m].agent === F.agent));
+const modelLabel = () => { const n = F.models.size; if (!n) return ''; if (n === 1) return [...F.models][0];
+  const v = VENDORS.find(v => { const ms = vendorModels(v); return ms.length === n && ms.every(m => F.models.has(m)); });
+  return v ? v + ' 全部' : n + ' 个模型'; };
+const MODES = [
+  ['按类型', [['in', '输入', '--accent'], ['cw', '缓存写', '--warn'], ['cr', '缓存读', '--text3'], ['out', '输出', '--done']], null],
+  ['按模型', Object.keys(MODELS).map(m => [m, m, MODELS[m].color]), 'model'],
+  ['按 agent', [['claude', 'claude', '--accent'], ['codex', 'codex', '--agent2']], 'agent'],
+];
+const match = (x, skip) => (skip === 'agent' || !F.agent || x.agent === F.agent) && (skip === 'model' || !F.models.size || F.models.has(x.model)) && (skip === 'proj' || !F.proj || x.proj === F.proj);
+const facts = skip => FACTS.filter(f => f.day >= 30 - range && match(f, skip));
+const sumBy = (rows, key) => rows.reduce((m, f) => { const g = m[f[key]] ||= { tok: 0, cost: 0, turns: 0, wait: 0, in: 0, cw: 0, cr: 0 }; for (const k in g) g[k] += f[k]; return m; }, {});
+const hit = g => { const r = g.cr, w = g.cw; return r + w + g.in ? Math.round(r / (r + w + g.in) * 100) + '%' : '—'; };
+const agentColor = a => `var(${a === 'codex' ? '--agent2' : '--accent'})`;
+
+// ---------- 渲染 ----------
+function shownAdvice() {
+  return advice.filter(a => (!F.agent || a.agent === F.agent) && (!F.models.size || (a.model ? F.models.has(a.model) : [...F.models].some(m => MODELS[m].agent === a.agent))) && (!F.proj || !a.proj || a.proj === F.proj));
+}
+function renderChrome() {
+  const n = shownAdvice().length, labels = [n ? `建议  ${n}` : '建议', '用量', '会话', '技能与子代理'];
+  $('tabs').innerHTML = labels.map((l, i) => `<button data-i="${i}" class="${i === tab ? 'on' : ''}">${l}</button>`).join('');
+  [0, 1, 2, 3].forEach(i => $('p' + i).classList.toggle('on', i === tab));
+  const active = [F.agent, modelLabel(), F.proj].filter(Boolean);
+  $('sub').textContent = `最近 ${range} 天${active.length ? ' · 筛选:' + active.join(' / ') : ''} · 上次整理 3 分钟前 · 示例数据`;
+  const opt = (v, cur, label) => `<option value="${v}"${v === cur ? ' selected' : ''}>${label || v}</option>`;
+  const pop = !mopen ? '' : '<div class="mpop" id="mpop">' + VENDORS.map(v => { const ms = vendorModels(v), k = ms.filter(m => F.models.has(m)).length;
+    return !ms.length ? '' : `<div class="mrow vend" data-pv="${v}"><i class="cb${k === ms.length ? ' on' : k ? ' part' : ''}"></i>${v}<span class="cnt">${k ? k + ' / ' : ''}${ms.length}</span></div>` +
+      ms.map(m => `<div class="mrow" data-pm="${m}"><i class="cb${F.models.has(m) ? ' on' : ''}"></i><i class="sw" style="background:var(${MODELS[m].color})"></i>${m}</div>`).join(''); }).join('') +
+    `<div class="mfoot"><span>${F.models.size ? '已选 ' + F.models.size + ' 个' : '不选即全部'}</span>${F.models.size ? '<span class="clear" data-mclear="1">清空</span>' : ''}</div></div>`;
+  $('filters').innerHTML = `
+    <label>Agent <select data-f="agent" class="${F.agent ? 'active' : ''}">${opt('', F.agent, '全部')}${opt('claude', F.agent)}${opt('codex', F.agent)}</select></label>
+    <span class="lbl">模型 <span class="msel"><button class="mbtn${F.models.size ? ' active' : ''}" id="mbtn" data-tip="按厂家整组勾选,或勾选一个 / 多个模型">${modelLabel() || '全部模型'}</button>${pop}</span></span>
+    <label>项目 <select data-f="proj" class="${F.proj ? 'active' : ''}">${opt('', F.proj, '全部项目')}${Object.keys(PROJ).map(p => opt(p, F.proj)).join('')}</select></label>
+    ${active.length ? '<span class="clear" id="clear">清除筛选</span>' : ''}
+    <span class="spacer"></span><span>筛选对所有页签同时生效;点厂家、模型或项目的行也能筛选</span>`;
+}
+function renderAdvice() {
+  const list = shownAdvice();
+  $('p0').innerHTML = list.length ? list.map(a => `
+    <div class="card advice">
+      <div class="row1"><span class="dot" style="background:var(--${a.sev})"></span><span class="title">${a.title}</span>
+        <span class="tag">${a.model || a.agent}</span>${a.proj ? `<span class="tag">${a.proj}</span>` : ''}
+        <span class="save">${a.save ? '约省 ' + fmtCost(a.save) : ''}</span></div>
+      <div class="ev">${a.ev}</div><div class="sug">${a.sug}</div>
+      <div class="acts"><button class="btn" data-mute="${advice.indexOf(a)}">不再提示</button><button class="btn primary" data-act="${advice.indexOf(a)}">${a.act}</button></div>
+    </div>`).join('') : `<div class="empty">${advice.length ? '当前筛选条件下没有建议' : '这段时间没有发现可以省的地方'}</div>`;
+}
+function renderUsage() {
+  const rows = facts(), days = DAYS.slice(-range), [, keys, dim] = MODES[mode];
+  const tot = rows.reduce((g, f) => { for (const k in g) g[k] += f[k]; return g; }, { tok: 0, cost: 0, turns: 0, wait: 0, in: 0, cw: 0, cr: 0 });
+  const M = unit ? 'cost' : 'tok', fv = unit ? fmtCost : fmt, CK = { in: 'cIn', cw: 'cCw', cr: 'cCr', out: 'cOut' };
+  const perDay = days.map(d => { const fs = rows.filter(f => f.day === d.i), v = {};
+    for (const [key] of keys) v[key] = fs.reduce((a, f) => a + (dim ? (f[dim] === key ? f[M] : 0) : f[unit ? CK[key] : key]), 0);
+    return { d, v, total: fs.reduce((a, f) => a + f[M], 0), tok: fs.reduce((a, f) => a + f.tok, 0), cost: fs.reduce((a, f) => a + f.cost, 0) }; });
+  const max = Math.max(.01, ...perDay.map(x => x.total));
+  const cols = perDay.map(({ d, v, total, tok, cost }) => {
+    if (d.gap) return `<div class="col" data-tip="${d.date} · 无数据(原始记录已被清理)"><div class="nodata"></div></div>`;
+    const tip = `${d.date} 周${d.wd} · ${fmt(tok)} tokens · ${fmtCost(cost)}\n` + keys.filter(([k]) => v[k] > 0).map(([k, name]) => `${name} ${fv(v[k])}`).join(' · ');
+    return `<div class="col" data-tip="${tip}"><div class="stack" style="height:${total / max * 100}%">` +
+      keys.map(([k, , c]) => `<i style="display:block;flex:${v[k]};background:var(${c})"></i>`).join('') + '</div></div>';
+  }).join('');
+  const labels = days.map((d, i) => `<span>${range === 7 ? d.wd : (i % 5 === 4 ? d.date : '')}</span>`).join('');
+
+  const byModel = sumBy(facts('model'), 'model'), allM = Object.values(byModel).reduce((a, g) => a + g.cost, 0) || 1;
+  const selCls = (k, n) => k && k === n ? ' sel' : F.models.size && !k ? ' off' : '';
+  const mline = (cls, attrs, name, g, color) => `<div class="row pick ${cls}" ${attrs}>
+      <span class="nm">${name}</span><span class="r mono">${g.turns}</span><span class="r mono">${fmt(g.tok)}</span><span class="r mono">${fmtCost(g.cost)}</span>
+      <span class="pbar"><i style="width:${g.cost / allM * 100}%;background:var(${color})"></i></span>
+      <span class="r mono">${fmt(g.tok / g.turns)}</span><span class="r">${fmtDur(g.wait / g.turns)}</span><span class="r mono">${hit(g)}</span></div>`;
+  const mrows = VENDORS.map(v => { const ms = Object.keys(MODELS).filter(m => MODELS[m].vendor === v && byModel[m]).sort((a, b) => byModel[b].cost - byModel[a].cost);
+    const g = ms.reduce((t, m) => { for (const k in t) t[k] += byModel[m][k]; return t; }, { tok: 0, cost: 0, turns: 0, wait: 0, in: 0, cw: 0, cr: 0 });
+    return { v, ms, g, k: ms.filter(m => F.models.has(m)).length }; }).filter(x => x.ms.length).sort((a, b) => b.g.cost - a.g.cost).map(({ v, ms, g, k }) =>
+    mline('vend' + selCls(k, ms.length), `data-pick="vendor" data-v="${v}" data-tip="${v} · ${ms.length} 个模型\n费用占比 ${Math.round(g.cost / allM * 100)}% · 点击选中这个厂家的全部模型"`, v, g, '--text3') +
+    ms.map(m => mline('sub' + selCls(+F.models.has(m), 1), `data-pick="model" data-v="${m}" data-tip="${v} / ${m} · ${MODELS[m].agent}\n费用占比 ${Math.round(byModel[m].cost / allM * 100)}% · 输入单价 $${MODELS[m].pin} / 百万(示例) · 点击加入或移出筛选"`,
+      `<i class="sw" style="background:var(${MODELS[m].color})"></i>${m}`, byModel[m], MODELS[m].color)).join('')).join('');
+  const byProj = sumBy(facts('proj'), 'proj'), maxP = Math.max(.01, ...Object.values(byProj).map(g => g.cost));
+  const prows = Object.keys(byProj).sort((a, b) => byProj[b].cost - byProj[a].cost).map(p => { const g = byProj[p];
+    return `<div class="row pick${F.proj === p ? ' sel' : F.proj ? ' off' : ''}" data-pick="proj" data-v="${p}" data-tip="${p} · 点击只看这个项目">
+      <span class="nm">${p}</span><span class="pbar"><i style="width:${g.cost / maxP * 100}%"></i></span><span class="r mono">${fmt(g.tok)}</span><span class="r mono">${fmtCost(g.cost)}</span><span class="r mono">${g.turns}</span></div>`; }).join('');
+
+  $('p1').innerHTML = `
+    <div class="card kpis">
+      <div class="kpi" data-tip="原始 token 总数:输入 + 缓存写 + 缓存读 + 输出直接相加\n其中缓存读 ${fmt(tot.cr)},通常占绝大部分"><div class="l">Token 总量</div><div class="v">${fmt(tot.tok)}</div></div>
+      <div class="kpi" data-tip="按各模型的 API 单价折算,原型里的单价是示例\n订阅套餐不按 token 计费,这个数只用来比较轻重"><div class="l">折合费用</div><div class="v">${fmtCost(tot.cost)}</div></div>
+      <div class="kpi"><div class="l">对话轮数</div><div class="v">${tot.turns}</div></div>
+      <div class="kpi"><div class="l">平均每轮</div><div class="v">${tot.turns ? fmt(tot.tok / tot.turns) : '—'}</div></div>
+      <div class="kpi"><div class="l">总等待时间</div><div class="v">${fmtDur(tot.wait)}</div></div>
+      <div class="kpi"><div class="l">缓存命中</div><div class="v">${hit(tot)}</div></div>
+    </div>
+    <div class="sec">每日用量<span class="spacer"></span>
+      <div class="seg" id="unit">${['Token', '费用'].map((l, i) => `<button class="${i === unit ? 'on' : ''}" data-u="${i}">${l}</button>`).join('')}</div>
+      <div class="seg" id="bymode">${MODES.map(([l], i) => `<button class="${i === mode ? 'on' : ''}" data-m="${i}">${l}</button>`).join('')}</div></div>
+    <div class="chart">${cols}</div><div class="xaxis">${labels}</div>
+    <div class="legend">${keys.map(([, name, c]) => `<span><i style="background:var(${c})"></i>${name}</span>`).join('')}</div>
+    <div class="two">
+      <div><div class="sec">模型</div><div class="card tbl models">
+        <div class="row th"><span>厂家 / 模型</span><span class="r">轮数</span><span class="r">Token</span><span class="r">费用</span><span>费用占比</span><span class="r">每轮</span><span class="r">每轮耗时</span><span class="r">命中</span></div>
+        ${mrows || '<div class="empty" style="padding:20px 0">没有数据</div>'}</div></div>
+      <div><div class="sec">项目</div><div class="card tbl projs">
+        <div class="row th"><span>项目</span><span></span><span class="r">Token</span><span class="r">费用</span><span class="r">轮数</span></div>
+        ${prows || '<div class="empty" style="padding:20px 0">没有数据</div>'}</div></div>
+    </div>`;
+}
+function renderSessions() {
+  const cmp = [(a, b) => b.t.localeCompare(a.t), (a, b) => b.tok - a.tok, (a, b) => b.dur - a.dur][sort];
+  const list = SESSIONS.filter(s => match(s) && (range === 30 || s.t >= '11-16')).sort(cmp);
+  $('p2').innerHTML = `
+    <div class="sec" style="margin-top:0">${list.length} 个会话<span class="spacer"></span><span class="hint">排序</span>
+      <div class="seg" id="sort">${['时间', '用量', '耗时'].map((l, i) => `<button class="${i === sort ? 'on' : ''}" data-o="${i}">${l}</button>`).join('')}</div></div>
+    <div class="card">
+      <div class="sesshead"><span></span><span>开始时间</span><span>项目</span><span>agent</span><span>模型</span><span></span><span class="r">轮数</span><span class="r">Token</span><span class="r">费用</span><span class="r">峰值</span><span class="r">耗时</span></div>
+      ${list.map(s => { const id = SESSIONS.indexOf(s); return `
+      <div class="sess${id === openSess ? ' open' : ''}">
+        <div class="head" data-s="${id}"><span class="chev">▶</span><span class="mono">${s.t}</span><span>${s.proj}</span>
+          <span class="ag" style="color:${agentColor(s.agent)}">${s.agent}</span><span class="model mono">${s.model}</span><span></span>
+          <span class="r">${s.n} 轮</span><span class="r mono">${fmt(s.tok)}</span><span class="r mono">${fmtCost(s.cost)}</span><span class="r mono">${fmt(s.peak)}</span><span class="r">${fmtDur(s.dur)}</span></div>
+        <div class="turns">
+          <div class="colhead"><span>轮</span><span>耗时</span><span>其中思考</span><span class="r">上下文</span><span class="r">输出</span><span class="r">工具</span><span>最大工具输出</span><span>等确认</span></div>
+          ${s.turns.map(t => `<div class="turn mono"><span class="dim">#${t.k}</span><span class="${t.hot ? 'hot' : ''}">${fmtDur(t.dur)}</span><span class="dim">${fmtDur(t.think)}</span>
+            <span class="r">+${fmt(t.ctx)}</span><span class="r">${t.out.toFixed(1)}K</span><span class="r">${t.nt} 次</span>
+            <span class="${t.hot ? 'hot' : ''}">${t.max || '—'}</span><span class="dim">${s.agent === 'codex' ? '—' : t.wait ? fmtDur(t.wait) : '—'}</span></div>`).join('')}
+        </div>
+      </div>`; }).join('') || '<div class="empty">当前筛选条件下没有会话</div>'}
+    </div>`;
+}
+function renderExt() {
+  const inRange = f => f.day >= 30 - range && match(f);
+  const subs = SUBF.filter(inRange), skills = SKILLF.filter(inRange);
+  const sum = (rows, k) => rows.reduce((a, f) => a + f[k], 0);
+  const group = (rows, keys) => { const m = {};
+    for (const f of rows) { const g = m[f.name] ||= { name: f.name, agent: f.agent, models: {} }, c = g.models[f.model] ||= {};
+      for (const k of keys) { g[k] = (g[k] || 0) + f[k]; c[k] = (c[k] || 0) + f[k]; } }
+    return Object.values(m); };
+  const agTag = a => F.agent ? '' : `<span class="agtag" style="color:${agentColor(a)}">${a}</span>`;
+  const mainCost = sum(facts(), 'cost'), subCost = sum(subs, 'cost'), subN = sum(subs, 'n');
+  const mname = (m, g) => `<span class="nm"><i class="sw" style="background:var(${MODELS[m].color})"></i>${m}</span>`;
+  const pickAttr = (m, what) => `class="row pick sub${F.models.has(m) ? ' sel' : ''}" data-pick="model" data-v="${m}" data-tip="${MODELS[m].vendor} / ${m}\n${what} · 点击加入或移出筛选"`;
+
+  const sg = group(subs, ['n', 'tok', 'cost', 'dur']).sort((a, b) => b.cost - a.cost);
+  const srows = sg.map(g => { const ms = Object.keys(g.models).sort((a, b) => g.models[b].cost - g.models[a].cost);
+    const cells = (x, color) => `<span class="r mono">${x.n}</span><span class="r mono">${fmt(x.tok)}</span><span class="r mono">${fmtCost(x.cost)}</span>
+      <span class="pbar"><i style="width:${x.cost / (subCost || 1) * 100}%;background:var(${color})"></i></span>
+      <span class="r mono">${fmt(x.tok / x.n)}</span><span class="r">${fmtDur(x.dur / x.n)}</span>`;
+    return `<div class="row grp" data-tip="${g.name} · ${g.agent} · 启动 ${g.n} 次,用了 ${ms.length} 个模型${g.name === 'guardian' ? '\nCodex 的自动审批,每次审一条待执行的操作' : ''}\n占子代理费用 ${Math.round(g.cost / (subCost || 1) * 100)}%"><span class="nm">${g.name}${agTag(g.agent)}</span>${cells(g, '--text3')}</div>` +
+      ms.map(m => `<div ${pickAttr(m, '这个子代理用它跑了 ' + g.models[m].n + ' 次')}>${mname(m)}${cells(g.models[m], MODELS[m].color)}</div>`).join(''); }).join('');
+
+  const allLoad = sum(skills, 'load') || 1;
+  const kg = group(skills, ['n', 'sess', 'load']).sort((a, b) => b.n - a.n);
+  const krows = kg.map(g => { const ms = Object.keys(g.models).sort((a, b) => g.models[b].n - g.models[a].n);
+    const cells = (x, color) => `<span class="r mono">${x.n}</span><span class="r mono">${x.sess}</span><span class="r mono">${(x.load / x.n).toFixed(1)}K</span><span class="r mono">${fmt(x.load)}</span>
+      <span class="pbar"><i style="width:${x.load / allLoad * 100}%;background:var(${color})"></i></span>`;
+    return `<div class="row grp" data-tip="${g.name} · ${g.agent} · 触发 ${g.n} 次,分布在 ${g.sess} 个会话\n每次往上下文里加载约 ${(g.load / g.n).toFixed(1)}K token${g.agent === 'codex' ? '\nCodex 没有技能工具,这是从读 SKILL.md 的命令推断的' : ''}"><span class="nm">${g.name}${agTag(g.agent)}</span>${cells(g, '--text3')}</div>` +
+      ms.map(m => `<div ${pickAttr(m, '主对话用这个模型时触发了 ' + g.models[m].n + ' 次')}>${mname(m)}${cells(g.models[m], MODELS[m].color)}</div>`).join(''); }).join('');
+
+  $('p3').innerHTML = `
+    <div class="card kpis">
+      <div class="kpi"><div class="l">子代理启动</div><div class="v">${subN} 次</div></div>
+      <div class="kpi" data-tip="子代理自己消耗的原始 token 总数,来自它自己的记录,是实际值"><div class="l">子代理 Token</div><div class="v">${fmt(sum(subs, 'tok'))}</div></div>
+      <div class="kpi"><div class="l">子代理折合费用</div><div class="v">${fmtCost(subCost)}</div></div>
+      <div class="kpi" data-tip="子代理费用 ÷ (主对话费用 + 子代理费用)"><div class="l">占总费用</div><div class="v">${subCost ? Math.round(subCost / (mainCost + subCost) * 100) + '%' : '—'}</div></div>
+      <div class="kpi"><div class="l">技能触发</div><div class="v">${sum(skills, 'n')} 次</div></div>
+      <div class="kpi" data-tip="所有技能加载进上下文的体积之和(估算)\n加载一次后,这部分会留在上下文里跟着后面每一轮重读"><div class="l">技能累计加载</div><div class="v">${fmt(sum(skills, 'load'))}</div></div>
+    </div>
+    <div class="sec">子代理<span class="spacer"></span><span class="hint">按类型,展开到所用模型</span></div>
+    <div class="card tbl subs">
+      <div class="row th"><span>子代理 / 模型</span><span class="r">次数</span><span class="r">Token</span><span class="r">费用</span><span>费用占比</span><span class="r">每次</span><span class="r">每次耗时</span></div>
+      ${srows || '<div class="empty" style="padding:20px 0">当前筛选条件下没有子代理</div>'}</div>
+    <div class="sec">技能<span class="spacer"></span><span class="hint">按技能,展开到触发时主对话所用的模型</span></div>
+    <div class="card tbl skills">
+      <div class="row th"><span>技能 / 触发模型</span><span class="r">触发</span><span class="r">会话</span><span class="r">每次加载</span><span class="r">累计加载</span><span>加载占比</span></div>
+      ${krows || '<div class="empty" style="padding:20px 0">当前筛选条件下没有技能触发</div>'}</div>
+    <div class="note">子代理的 token、模型和耗时取自它自己的记录,是实际用量。技能没有独立的用量:它只是把一段说明加载进主对话的上下文,
+      所以这里显示的是加载体积(估算)和触发它时主对话所用的模型,后续消耗已经算在主对话里。
+      Codex 没有技能工具,触发次数是从"读 SKILL.md 的命令"推断的。</div>`;
+}
+function render() { renderChrome(); renderAdvice(); renderUsage(); renderSessions(); renderExt(); }
+
+const TERM = [
+  '<span class="hl">❯</span> claude', '', '  ⏺ 已把分屏比例写进布局树,拖动分隔线时只改两侧权重。',
+  '  ⏺ Bash(cargo test -p vg-app split)', '    ⎿ test result: ok. 14 passed; 0 failed', '',
+  '  ⏺ 改动在 crates/vg-app/src/split.rs,需要我接着补截图测试吗?', '',
+];
+function renderTerm(typed) { $('term').innerHTML = TERM.join('\n') + '\n<span class="hl">❯</span> <span class="typed">' + (typed || '') + '</span>▏'; }
+function openWin(i) { if (i != null) tab = i; $('win').style.display = ''; $('chartbtn').classList.add('on'); render(); }
+function closeWin() { $('win').style.display = 'none'; $('chartbtn').classList.remove('on'); }
+function setFilter(k, v) { F[k] = v; if (F.agent) for (const m of [...F.models]) if (MODELS[m].agent !== F.agent) F.models.delete(m); render(); }
+function toggleModels(ms) { const all = ms.every(m => F.models.has(m)); ms.forEach(m => all ? F.models.delete(m) : F.models.add(m)); render(); }
+
+$('tabs').onclick = e => { if (e.target.dataset.i) { tab = +e.target.dataset.i; render(); } };
+$('range').onclick = e => { if (e.target.dataset.r) { range = +e.target.dataset.r;
+  document.querySelectorAll('#range button').forEach(b => b.classList.toggle('on', b === e.target)); render(); } };
+$('close').onclick = closeWin;
+$('chartbtn').onclick = () => $('win').style.display === 'none' ? openWin() : closeWin();
+$('meter').onclick = () => { F.agent = ''; F.models.clear(); F.proj = 'VoiceGhostty'; openSess = 0; openWin(2); };
+$('rescan').onclick = () => { $('sub').textContent = '正在整理历史记录 312 / 729'; setTimeout(renderChrome, 1200); };
+$('msg').onclick = e => { if (e.target.dataset.open) openWin(0); };
+document.addEventListener('keydown', e => { if (e.key !== 'Escape') return; if (mopen) { mopen = false; renderChrome(); } else closeWin(); });
+document.addEventListener('click', e => { if (mopen && !e.target.closest('.msel')) { mopen = false; renderChrome(); } });
+$('filters').onchange = e => setFilter(e.target.dataset.f, e.target.value);
+$('win').onclick = e => {
+  const d = e.target.dataset;
+  if (e.target.id === 'mbtn') { mopen = !mopen; renderChrome(); return; }
+  const pv = e.target.closest('[data-pv]'), pm = e.target.closest('[data-pm]');
+  if (pv) return toggleModels(vendorModels(pv.dataset.pv));
+  if (pm) return toggleModels([pm.dataset.pm]);
+  if (d.mclear) { F.models.clear(); render(); return; }
+  if (e.target.id === 'clear') { F.agent = F.proj = ''; F.models.clear(); render(); }
+  if (d.mute) { advice.splice(+d.mute, 1); render(); }
+  if (d.act) { const a = advice[+d.act];
+    if (a.cmd) { closeWin(); renderTerm(a.cmd); $('msg').textContent = `已输入 ${a.cmd},未回车`; }
+    else if (a.filter) { F.agent = a.filter.agent || ''; F.proj = ''; F.models = new Set(a.filter.model ? [a.filter.model] : []); tab = 1; render(); }
+    else if (a.tab != null) { tab = a.tab; sort = 2; render(); }
+    else $('msg').textContent = '示例:这里会打开加载器(⌘L)'; }
+  if (d.m) { mode = +d.m; renderUsage(); }
+  if (d.u) { unit = +d.u; renderUsage(); }
+  if (d.o) { sort = +d.o; renderSessions(); }
+  const pick = e.target.closest('[data-pick]');
+  if (pick) { const { pick: k, v } = pick.dataset;
+    if (k === 'model') toggleModels([v]); else if (k === 'vendor') toggleModels(vendorModels(v)); else setFilter(k, F[k] === v ? '' : v); }
+  const h = e.target.closest('.head');
+  if (h) { openSess = openSess === +h.dataset.s ? -1 : +h.dataset.s; renderSessions(); }
+};
+const tip = $('tip');
+document.addEventListener('mousemove', e => {
+  const t = e.target.closest('[data-tip]');
+  if (!t) { tip.style.display = 'none'; return; }
+  tip.textContent = t.dataset.tip; tip.style.display = 'block';
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(e.clientX + 12, innerWidth - w - 8) + 'px';
+  tip.style.top = (e.clientY + 16 + h > innerHeight ? e.clientY - h - 10 : e.clientY + 16) + 'px';
+});
+
+applyTheme('Dark'); renderTerm(''); render();
+</script>
+</body>
+</html>

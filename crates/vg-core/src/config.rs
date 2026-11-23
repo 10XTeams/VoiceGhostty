@@ -10,7 +10,7 @@
 
 use std::path::PathBuf;
 
-use crate::paths::{config_file, expand_tilde, home_dir};
+use crate::paths::{config_file, expand_tilde};
 use crate::theme::{Rgb, Theme};
 use crate::{claude, ollama};
 
@@ -25,11 +25,19 @@ pub enum LlmProvider {
 }
 
 impl LlmProvider {
-    fn parse(v: &str) -> LlmProvider {
+    pub fn parse(v: &str) -> LlmProvider {
         match v.to_ascii_lowercase().as_str() {
             "claude" => LlmProvider::Claude,
             "ollama" | "local" | "apple" => LlmProvider::Ollama,
             _ => LlmProvider::Auto,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LlmProvider::Auto => "auto",
+            LlmProvider::Claude => "claude",
+            LlmProvider::Ollama => "ollama",
         }
     }
 }
@@ -208,7 +216,8 @@ pub struct Config {
     pub llm_local_model: String,
     pub llm_local_url: String,
 
-    /// 技能库目录:面板把每个目录的子文件夹列为可加载技能,一个目录一组
+    /// 加载器的来源文件夹,一个文件夹一组。默认为空:`~/.claude/` 是 Claude 自己到处都加载的全局目录,
+    /// 不是可以往项目里复制的素材库
     pub skill_library_dirs: Vec<PathBuf>,
 
     pub voice: VoiceConfig,
@@ -230,14 +239,10 @@ impl Default for Config {
             llm_screen_context: true,
             llm_local_model: ollama::DEFAULT_MODEL.into(),
             llm_local_url: ollama::DEFAULT_BASE_URL.into(),
-            skill_library_dirs: vec![default_skill_library_dir()],
+            skill_library_dirs: vec![],
             voice: VoiceConfig::default(),
         }
     }
-}
-
-pub fn default_skill_library_dir() -> PathBuf {
-    home_dir().join(".claude").join("skills")
 }
 
 impl Config {
@@ -255,8 +260,6 @@ impl Config {
 
     pub fn parse(text: &str) -> Config {
         let mut config = Config::default();
-        // 第一行 skill-library-dir 替换默认值,之后的行追加
-        let mut saw_skill_dir = false;
 
         for raw in text.lines() {
             let line = raw.trim();
@@ -300,14 +303,7 @@ impl Config {
                         .filter(|d| !d.is_empty())
                         .map(expand_tilde)
                         .collect();
-                    if dirs.is_empty() {
-                        continue;
-                    }
-                    if !saw_skill_dir {
-                        config.skill_library_dirs.clear();
-                    }
                     config.skill_library_dirs.extend(dirs);
-                    saw_skill_dir = true;
                 }
                 "voice-engine" => v.engine = VoiceEngineKind::parse(value),
                 "voice-language" => v.language = normalize_language(value),
@@ -388,7 +384,8 @@ mod tests {
     }
 
     #[test]
-    fn skill_dirs_replace_then_append() {
+    fn skill_dirs_default_empty_then_append() {
+        assert!(Config::default().skill_library_dirs.is_empty());
         let c = Config::parse("skill-library-dir = /a, /b\nskill-library-dir = /c\n");
         assert_eq!(
             c.skill_library_dirs,

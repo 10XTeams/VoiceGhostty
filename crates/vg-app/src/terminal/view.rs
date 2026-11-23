@@ -126,9 +126,18 @@ pub fn show(
                 should_interrupt_composition: false,
             })
         });
-    } else if state.ptt.cancel() == PttAction::StopRecording {
+    } else {
+        // 失焦后收不到输入法事件了,组字结束(上屏 / 取消)的通知会落到别的窗格头上。
+        // 留着它,那串拼音就永远画在光标后面、删也删不掉
+        state.preedit.clear();
         // 失焦时放弃按键;正在录音就停止
-        actions.push(PttAction::StopRecording);
+        if state.ptt.cancel() == PttAction::StopRecording {
+            actions.push(PttAction::StopRecording);
+        }
+    }
+    // 整个窗口失焦(切到别的应用)同理:系统可能悄悄丢掉组字。真还在组字的话,下一次按键会带来完整的 Preedit
+    if !ui.input(|i| i.focused) {
+        state.preedit.clear();
     }
 
     draw(ui, session, state, opts, rect, &font, cw, ch, focused);
@@ -191,6 +200,8 @@ fn handle_input(
             // 空格由上面的按键事件负责(点按时补发),这里丢掉以免重复
             Event::Text(t) if opts.ptt_enabled && opts.ptt_key == egui::Key::Space && t == " " && state.preedit.is_empty() => {}
             Event::Text(t) => {
+                // 组字期间按键都归输入法,不会有普通文字进来;进来了就说明组字早已结束,只是没通知到我们
+                state.preedit.clear();
                 let mut term = session.term.lock();
                 term.scroll_display(Scroll::Bottom);
                 term.selection = None;

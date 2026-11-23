@@ -77,6 +77,21 @@ fn shots() {
     h.state_mut().show_settings = true;
     settle(&mut h, Duration::from_millis(400));
     save(&mut h, &dir, "03-settings");
+    for (i, name) in [(1, "03b-settings-appearance"), (2, "03c-settings-voice"), (3, "03d-settings-llm"), (4, "03e-settings-data")] {
+        crate::settings_ui::select_tab(&h.ctx, i);
+        settle(&mut h, Duration::from_millis(200));
+        save(&mut h, &dir, name);
+    }
+    // 选了 HTTP 引擎时多出的接口设置
+    crate::settings_ui::select_tab(&h.ctx, 2);
+    let ctx = h.ctx.clone();
+    h.state_mut().settings.voice_engine = Some("http".into());
+    h.state_mut().reload_config(&ctx);
+    settle(&mut h, Duration::from_millis(200));
+    save(&mut h, &dir, "03c2-settings-voice-http");
+    h.state_mut().settings.voice_engine = None;
+    h.state_mut().reload_config(&ctx);
+    crate::settings_ui::select_tab(&h.ctx, 0);
     h.state_mut().show_settings = false;
 
     h.state_mut().toggle_loader();
@@ -97,6 +112,12 @@ fn shots() {
     settle(&mut h, Duration::from_secs(2));
     save(&mut h, &dir, "06-split-tabs-search");
     h.state_mut().search_open = false;
+
+    // 窗格列表:顶部标签栏让位给左侧列表
+    h.state_mut().settings.show_sidebar = true;
+    settle(&mut h, Duration::from_millis(300));
+    save(&mut h, &dir, "06b-sidebar");
+    h.state_mut().settings.show_sidebar = false;
 
     h.state_mut().set_status("识别失败:No whisper model found", true);
     h.state_mut().confirm_quit = true;
@@ -313,3 +334,43 @@ fn model_download_shots() {
     drop(h);
     vg_voice::shutdown();
 }
+
+/// 用量洞察面板的三个页签。默认注入示例数据;设 VG_INSIGHTS_LEDGER=<台账目录> 则读那份真实台账。
+///   VG_SHOTS=/tmp/shots cargo test -p vg-app insights_shots -- --ignored --nocapture
+#[test]
+#[ignore]
+fn insights_shots() {
+    use crate::insights_panel::Tab;
+    let Some(dir) = std::env::var_os("VG_SHOTS").map(PathBuf::from) else {
+        eprintln!("skipped: set VG_SHOTS=<dir>");
+        return;
+    };
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = Harness::builder()
+        .with_size([1120.0, 900.0])
+        .with_pixels_per_point(2.0)
+        .wgpu()
+        .build_eframe(|cc| {
+            let mut app = VoiceGhosttyApp::new(cc);
+            app.settings.save_history = false;
+            app
+        });
+    settle(&mut h, Duration::from_millis(800));
+    let now = vg_core::insights::time::now_ms();
+    let snap = match std::env::var_os("VG_INSIGHTS_LEDGER") {
+        Some(ledger) => crate::insights::Snapshot {
+            records: std::sync::Arc::new(vg_core::insights::ledger::load(std::path::Path::new(&ledger), 0)),
+            last_scan_ms: Some(now),
+            ..Default::default()
+        },
+        None => crate::insights_panel::sample_snapshot(now),
+    };
+    h.state().insights.replace(snap);
+    for (tab, name) in [(Tab::Advice, "insights-1-advice"), (Tab::Usage, "insights-2-usage"), (Tab::Sessions, "insights-3-sessions")] {
+        h.state_mut().insights_panel.open(tab, None);
+        h.state_mut().show_insights = true;
+        settle(&mut h, Duration::from_millis(300));
+        save(&mut h, &dir, name);
+    }
+}
+

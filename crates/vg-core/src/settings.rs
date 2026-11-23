@@ -6,10 +6,21 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{normalize_language, Config, VoiceEngineKind};
+use crate::config::{normalize_language, Config, LlmProvider, VoiceEngineKind};
 use crate::paths::{config_dir, settings_file};
 
 pub const SCROLLBACK_RANGE: std::ops::RangeInclusive<usize> = 500..=200_000;
+/// 测试用:之后的 `save()` 都不写盘。截图测试用真实设置启动、又会改设置,不关掉就会把你的 settings.json 改坏
+static SAVING_DISABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn disable_saving() {
+    SAVING_DISABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// 终端字号(与 ⌘+ / ⌘- 的上下限一致)
+pub const FONT_SIZE_RANGE: std::ops::RangeInclusive<f32> = 8.0..=48.0;
+/// 会话记录写盘间隔(秒)
+pub const HISTORY_SAVE_RANGE: std::ops::RangeInclusive<u32> = 1..=300;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
@@ -38,6 +49,8 @@ pub struct Settings {
     pub scrollback: Option<usize>,
     /// 每个窗格的会话记录是否写入文件
     pub save_history: bool,
+    /// 会话记录每隔多少秒写一次盘(窗格关闭时总会补写一次)
+    pub history_save_seconds: u32,
     /// 在 zsh 提示符下输入命令的颜色
     pub input_color: String,
     /// 状态灯变绿(命令结束)时是否提示音
@@ -56,6 +69,36 @@ pub struct Settings {
     pub projects_dir: Option<PathBuf>,
     /// 窗格列表侧边栏是否展开(⌘B)
     pub show_sidebar: bool,
+    /// 用量洞察:后台扫描 Claude Code 的会话记录、整理台账
+    pub insights_enabled: bool,
+    /// 用量洞察里点过「不再提示」的规则
+    pub insights_muted_rules: BTreeSet<String>,
+    /// 后台扫描周期(分钟)
+    pub insights_scan_minutes: u32,
+    /// 主题 id,覆盖 theme
+    pub theme: Option<String>,
+    /// 终端字体,覆盖 font-family;空串 = 平台默认等宽字体
+    pub font_family: Option<String>,
+    /// 终端字号,覆盖 font-size
+    pub font_size: Option<f32>,
+    /// HTTP 识别接口,覆盖 voice-api-url / voice-api-key / voice-api-model
+    pub voice_api_url: Option<String>,
+    pub voice_api_key: Option<String>,
+    pub voice_api_model: Option<String>,
+    /// 外部识别命令,覆盖 voice-command
+    pub voice_command: Option<String>,
+    /// 自然语言模式:覆盖 llm-provider / llm-model / llm-api-key / llm-local-model / llm-local-url
+    pub llm_provider: Option<String>,
+    pub llm_model: Option<String>,
+    pub llm_api_key: Option<String>,
+    pub llm_local_model: Option<String>,
+    pub llm_local_url: Option<String>,
+    /// 覆盖 correction
+    pub llm_correction: Option<bool>,
+    /// 覆盖 llm-screen-context
+    pub llm_screen_context: Option<bool>,
+    /// 单价覆盖:模型 id → [输入, 缓存写 5 分钟, 缓存写 1 小时, 缓存读, 输出](每百万 token 美元)
+    pub insights_prices: std::collections::BTreeMap<String, [f64; 5]>,
 }
 
 impl Default for Settings {
@@ -73,6 +116,7 @@ impl Default for Settings {
             model_prompt_dismissed: false,
             scrollback: None,
             save_history: true,
+            history_save_seconds: 5,
             input_color: "#5CC8FF".into(),
             done_sound: true,
             notify_in_background: true,
@@ -82,6 +126,24 @@ impl Default for Settings {
             default_dir: None,
             projects_dir: None,
             show_sidebar: false,
+            insights_enabled: true,
+            insights_muted_rules: BTreeSet::new(),
+            insights_scan_minutes: 60,
+            insights_prices: std::collections::BTreeMap::new(),
+            theme: None,
+            font_family: None,
+            font_size: None,
+            voice_api_url: None,
+            voice_api_key: None,
+            voice_api_model: None,
+            voice_command: None,
+            llm_provider: None,
+            llm_model: None,
+            llm_api_key: None,
+            llm_local_model: None,
+            llm_local_url: None,
+            llm_correction: None,
+            llm_screen_context: None,
         }
     }
 }
@@ -95,6 +157,9 @@ impl Settings {
     }
 
     pub fn save(&self) -> std::io::Result<()> {
+        if SAVING_DISABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            return Ok(());
+        }
         std::fs::create_dir_all(config_dir())?;
         let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         std::fs::write(settings_file(), json)?;
@@ -155,6 +220,33 @@ impl Settings {
         if let Some(dirs) = &self.skill_library_dirs {
             config.skill_library_dirs = dedupe(dirs);
         }
+        let set = |dst: &mut String, src: &Option<String>| {
+            if let Some(v) = src {
+                *dst = v.clone();
+            }
+        };
+        set(&mut config.theme_name, &self.theme);
+        set(&mut config.font_family, &self.font_family);
+        if let Some(n) = self.font_size.filter(|n| FONT_SIZE_RANGE.contains(n)) {
+            config.font_size = n;
+        }
+        set(&mut config.voice.api_url, &self.voice_api_url);
+        set(&mut config.voice.api_key, &self.voice_api_key);
+        set(&mut config.voice.api_model, &self.voice_api_model);
+        set(&mut config.voice.command, &self.voice_command);
+        if let Some(p) = &self.llm_provider {
+            config.llm_provider = LlmProvider::parse(p);
+        }
+        set(&mut config.llm_model, &self.llm_model);
+        set(&mut config.llm_api_key, &self.llm_api_key);
+        set(&mut config.llm_local_model, &self.llm_local_model);
+        set(&mut config.llm_local_url, &self.llm_local_url);
+        if let Some(c) = self.llm_correction {
+            config.correction_enabled = c;
+        }
+        if let Some(c) = self.llm_screen_context {
+            config.llm_screen_context = c;
+        }
     }
 }
 
@@ -204,6 +296,31 @@ mod tests {
         assert_eq!(s.default_dir, Some(PathBuf::from("/tmp")));
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);
+    }
+
+    #[test]
+    fn overrides_appearance_and_llm() {
+        let mut c = Config::default();
+        let s = Settings {
+            theme: Some("dracula".into()),
+            font_family: Some(String::new()),
+            font_size: Some(200.0), // 超出范围:忽略
+            voice_api_url: Some("http://127.0.0.1:8000/v1/audio/transcriptions".into()),
+            voice_command: Some("whisper-cli -f {wav}".into()),
+            llm_provider: Some("ollama".into()),
+            llm_api_key: Some("k".into()),
+            llm_correction: Some(false),
+            ..Settings::default()
+        };
+        s.apply_to(&mut c);
+        assert_eq!(c.theme_name, "dracula");
+        assert_eq!(c.font_size, 13.0);
+        assert_eq!(c.voice.api_url, "http://127.0.0.1:8000/v1/audio/transcriptions");
+        assert_eq!(c.voice.command, "whisper-cli -f {wav}");
+        assert_eq!(c.llm_provider, LlmProvider::Ollama);
+        assert_eq!(c.llm_api_key, "k");
+        assert!(!c.correction_enabled);
+        assert_eq!(c.llm_model, Config::default().llm_model);
     }
 
     #[test]
