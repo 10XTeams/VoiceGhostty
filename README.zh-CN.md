@@ -6,7 +6,7 @@
 
 **为 Claude Code 打造的语音优先终端 —— 按住空格说话,话就落在命令行上。**
 
-Rust 编写,macOS 预编译发布,Linux / Windows 可从源码构建。按住说话、离线 whisper 识别、自然语言转命令、标签与分屏、一键加载 Claude Code *技能*。
+Rust 编写,macOS 预编译发布,Linux / Windows 可从源码构建。按住说话、离线 whisper 识别、自然语言转命令、标签与分屏、一键加载 Claude Code *技能*、Claude Code 用量洞察。
 
 [![Build & Release](https://github.com/10XTeams/VoiceGhostty/actions/workflows/release.yml/badge.svg)](https://github.com/10XTeams/VoiceGhostty/actions/workflows/release.yml)
 [![Latest release](https://img.shields.io/github/v/release/10XTeams/VoiceGhostty?sort=semver)](https://github.com/10XTeams/VoiceGhostty/releases)
@@ -35,28 +35,31 @@ Rust 编写,macOS 预编译发布,Linux / Windows 可从源码构建。按住说
 - **说想干什么,拿到命令。** 自然语言模式把「撤销上一次提交但保留改动」变成 `git reset --soft HEAD~1`,并在执行前给你一句解释。
 - **绝不会突然自己执行。** 识别结果剥离换行后落在光标处,回车永远由**你**来按。
 - **随手加载 Claude Code 技能、Agent 与插件。** 文件夹添加一次,里面的技能、Agent、插件会被同时识别出来,在 🧩 面板里分成三个页签。技能与 Agent 同步进当前项目的 `.claude/` 并自动发 `/reload-skills`;插件则只为当前项目启用。
+- **看清 token 花在哪。** <kbd>⌘I</kbd> 按模型、项目、会话列出 Claude Code 的 Token 用量和折合费用,并指出哪里在白花钱 —— 只读本机记录,不调 API。
 
 ## 功能
 
 | | |
 |---|---|
-| 🎙 **按住说话** | 按住 <kbd>空格</kbd>(≥0.25 秒)录音,松开即停;快速点按仍是正常输入空格。也可用 <kbd>⌘⇧M</kbd> 开关。本机引擎下边说边出**实时字幕**,松开后以最终识别为准。 |
-| 🔌 **可插拔识别引擎** | 内置 [whisper.cpp](https://github.com/ggml-org/whisper.cpp)(本地离线,macOS 用 Metal 加速,模型启动时后台预载);也可接任何读 WAV 出文字的**外部命令**,或 OpenAI 兼容的 **HTTP 转写接口**(OpenAI、Groq、本机 faster-whisper 等)。`auto` 按可用性自动挑。 |
-| 🗣 **语音命令** | 整句说「清屏」「新标签」「第二个标签」「向右分屏」「撤销」就直接执行,不敲字也不问模型;只认整句,句子里带这些词不受影响。 |
-| 🧠 **两种语音模式** | *听写*(说什么敲什么)与*自然语言*(Claude API 或本地 Ollama → 命令 + 解释;可选先用 Ollama 小模型纠错)。<kbd>⌘⇧N</kbd> 切换。 |
+| 🎙 **按住说话** | 按住 <kbd>空格</kbd>(≥0.25 秒)录音,松开即停;快速点按仍是正常输入空格。也可用 <kbd>⌘⇧M</kbd> 开关。说话键可换成 F13 等不出字的键;macOS 还能设**全局热键**,窗口在后台也能说。本机引擎下边说边出**实时字幕**,松开后以最终识别为准。焦点在搜索框、改名框里时,话就落进那个输入框。 |
+| 🔌 **可插拔识别引擎** | 内置 [whisper.cpp](https://github.com/ggml-org/whisper.cpp)(本地离线,macOS 用 Metal 加速,模型启动时后台预载;首次启动**一键下载模型**,自动走代理和国内镜像、断点续传);也可接任何读 WAV 出文字的**外部命令**,或 OpenAI 兼容的 **HTTP 转写接口**(OpenAI、Groq、本机 faster-whisper 等)。`auto` 按可用性自动挑。当前目录的文件名和 git 分支名自动作为**热词**,专有名词更容易听对。 |
+| 🗣 **语音命令与撤销** | 整句说「清屏」「新标签」「第二个标签」「向右分屏」「用量」就直接执行,不敲字也不问模型;只认整句,句子里带这些词不受影响。说错了按 <kbd>⌘Z</kbd> 或说「撤销」,删掉上一次语音上屏的文字。 |
+| 🧠 **两种语音模式** | *听写*:说什么敲什么,只过**个人词典**(把总听错的词改对)和**口述符号**(「cargo 点 toml」→ `cargo.toml`、「横杠 l」→ `-l`)。*自然语言*:Claude API 或本地 Ollama → 命令 + 解释,可带上屏幕最后 40 行和上一条命令的退出码,「刚才为什么报错」有所指;可选先用 Ollama 小模型纠错。<kbd>⌘⇧N</kbd> 切换。 |
 | 🌏 **中英识别** | 识别语言 `zh` / `en` / `auto`,默认自动加标点,主要口述 shell 命令时建议关掉。 |
-| 🚦 **状态灯** | 每个标签页和分屏都有蓝 / 黄 / 绿 / 橙四态点:空闲、执行中、已完成等你处理、**卡住等你输入**(Claude Code 等你批准、`[y/N]`、密码)。zsh 下靠 shell 集成精确判断;`claude`、`vim` 这类全屏程序按输出和响铃推断。你正在看的窗格执行中照常变黄,只是不亮绿 / 橙;窗口在后台也照常变色。<kbd>⌘B</kbd> 把顶部标签栏换成左侧的窗格列表,一眼找到那个橙色的。 |
+| 🚦 **状态灯** | 每个标签页和分屏都有蓝 / 黄 / 绿 / 橙四态点:空闲、执行中、已完成等你处理、**卡住等你输入**(Claude Code 等你批准、`[y/N]`、密码)。zsh 下靠 shell 集成精确判断;`claude`、`vim` 这类全屏程序按输出和响铃推断。你正在看的窗格执行中照常变黄,只是不亮绿 / 橙;窗口在后台也照常变色。<kbd>⌘B</kbd> 把顶部标签栏换成左侧的窗格列表,一眼找到那个橙色的;列表里同样能关闭、改名、新建标签页。 |
 | 🔔 **完成提示音与后台通知** | 窗格变绿的那一刻响一声合成提示音,5 秒内最多一次;窗口在后台时还发一条系统通知说清是哪个目录做完了或在等你。设置里都可关。 |
 | 🗂 **标签与嵌套分屏** | <kbd>⌘T</kbd> / <kbd>⌘W</kbd>、<kbd>⌘1…⌘9</kbd>。<kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> 拆的是**当前分屏**且可反复按:连按三次 <kbd>⌘D</kbd> 得到三等分,换个方向再拆就是网格;新格在原窗格当前目录里开 shell。拖动分隔线调大小(双击恢复等分),<kbd>⌘⇧↩</kbd> 放大当前格。<kbd>⌘⌥</kbd>+方向键按分屏树切焦点。标签名跟随工作目录,双击改名,中键关闭。 |
 | ↗️ **分屏跨标签页移动** | <kbd>⌘⌃1…8</kbd> 把当前格送到第 N 个标签页,<kbd>⌘⌃←→</kbd> 送到相邻标签页,<kbd>⌘⌃T</kbd> 移出成新标签页。shell 不中断、滚动历史一起过去。 |
 | 🧩 **动态加载技能 / Agent** | 勾选式面板(<kbd>⌘L</kbd>):自动识别文件夹里的技能(带 `SKILL.md` 的子文件夹)和 Agent(带 front matter 的 `.md`),应用后复制进 `cwd/.claude/skills/` 与 `cwd/.claude/agents/`,已存在的不覆盖,取消勾选即移除,随后自动发送 `/reload-skills` 与 `/reload-plugins`。 |
 | 🧩 **项目级插件** | 文件夹带 `.claude-plugin/marketplace.json`(或 `plugin.json`)时,它的插件出现在「插件」页签。勾选后只改 `cwd/.claude/settings.local.json` 里的 `enabledPlugins` 与 `extraKnownMarketplaces`,其他设置原样保留。 |
 | 🧩 **不允许重名** | 同名的技能 / Agent / 插件只由列表靠前的文件夹提供,靠后的那行勾不动并标「重名」。 |
-| 📊 **Claude 上下文占用** | 窗格前台在跑 Claude Code 时,状态栏显示 `claude ▬ 65K / 1M · 7%`,读自 `~/.claude/projects/` 下的记录;到 70% 变橙、90% 变红。 |
+| 📊 **Claude 上下文占用** | 窗格前台在跑 Claude Code 时,状态栏显示 `claude ▬ 65K / 1M · 7%`,读自 `~/.claude/projects/` 下的记录;到 70% 变橙、90% 变红。claude 等你回复时旁边显示**提示缓存倒计时** `⏱ 4:12`,过期前回复能省下重写缓存的钱。点用量条打开该项目的会话用量。 |
+| 📈 **用量洞察** | <kbd>⌘I</kbd> 或说「用量」:把 Claude Code 的本地会话记录(含子代理)整理成只有数字的台账,按厂家 / 模型、项目、会话看 Token 总量、按官方单价折合的费用和每日用量图,可选 7 天 / 30 天。「建议」页用规则找出浪费:缓存过期后才接着聊、某个项目起步上下文偏重,按能省多少排序。只读本机,不调 API;Claude Code 约 30 天后删记录,台账默认一直留着。 |
 | 🎨 **主题与搜索** | 暗色 / 亮色 / Solarized Dark / Dracula,整套界面配色从终端主题推导;<kbd>⌘F</kbd> 搜索滚动历史,找到的内容直接选中可复制;字号实时缩放,<kbd>⌘K</kbd> 清屏。 |
+| 🖱 **终端细节** | 真彩、宽字符与中文对齐、输入法候选框跟随光标;<kbd>⌘</kbd>+点击打开链接;提示符下单击当前行即可移动光标;vim、htop、codex 这类接管鼠标的全屏程序里滚轮照常可用;括号粘贴防止粘贴内容直接执行。 |
 | 📜 **会话历史** | 每个分屏写一份 `~/.config/voiceghostty/history/<目录>-<时间>.log`,记录的是终端最终显示的内容,不是原始字节流。 |
 | ✨ **Claude 快捷启动** | 保存常用项目目录,点一下就在当前分屏执行 `cd <目录> && claude`;「新建项目」在项目目录下建好文件夹、加入列表并直接启动。 |
-| ⚙️ **设置面板** | <kbd>⌘,</kbd>:语音引擎、识别语言、自动标点、完成提示音、会话历史、新标签页的默认文件夹、历史行数、主题、命令输入颜色、加载文件夹,改动立即生效,优先级高于配置文件。 |
+| ⚙️ **设置面板** | <kbd>⌘,</kbd>,分「终端 / 外观 / 语音 / 自然语言 / 数据」五个页签:默认文件夹、历史行数、加载文件夹;主题、字体、字号、命令输入颜色;语音引擎与接口、识别语言、说话键、语音词典;LLM 提供方、Key 与模型;各类运行数据的位置、会话记录写盘间隔、用量洞察。改动立即生效,优先级高于配置文件。 |
 | 🎨 **输入行着色** | 你在 zsh 提示符下敲的整行命令按设定颜色高亮;改色后所有已打开标签页即刻生效。 |
 | 🔒 **安全优先** | 语音绝不自动回车,插入前剥离换行;内置 whisper 时音频不出本机;API Key 只存在本地配置文件里。 |
 
@@ -83,7 +86,8 @@ Rust 编写,macOS 预编译发布,Linux / Windows 可从源码构建。按住说
 | 复制 | <kbd>⌘C</kbd> | <kbd>Ctrl⇧C</kbd>(单独的 Ctrl+C 仍是中断) |
 | 打开链接 | <kbd>⌘</kbd>+点击 | <kbd>Ctrl</kbd>+点击 |
 | 窗格列表侧边栏 | <kbd>⌘B</kbd> | <kbd>Ctrl⇧B</kbd> |
-| 加载器 / 设置 / 快捷键表 | <kbd>⌘L</kbd> / <kbd>⌘,</kbd> / <kbd>⌘/</kbd> | <kbd>Ctrl⇧L</kbd> / <kbd>,</kbd> / <kbd>/</kbd> |
+| 加载器 / 用量洞察 | <kbd>⌘L</kbd> / <kbd>⌘I</kbd> | <kbd>Ctrl⇧L</kbd> / <kbd>I</kbd> |
+| 设置 / 快捷键表 | <kbd>⌘,</kbd> / <kbd>⌘/</kbd> | <kbd>Ctrl⇧,</kbd> / <kbd>/</kbd> |
 | 字号 | <kbd>⌘+</kbd> <kbd>⌘-</kbd> <kbd>⌘0</kbd> | <kbd>Ctrl⇧+</kbd> <kbd>-</kbd> <kbd>0</kbd> |
 
 ## 安装
@@ -206,7 +210,7 @@ skill-library-dir = ~/work/team-skills, ~/work/my-agents
 
 > 从 Finder 启动的 app 拿不到 shell 环境变量,所以推荐把 Key 写进配置文件并 `chmod 600`。
 
-**app 内设置(<kbd>⌘,</kbd>)。** 语音引擎、识别语言、自动标点、完成提示音、会话历史、新标签页的默认文件夹、历史行数、命令输入颜色、加载文件夹都能在面板里直接改,存到 `settings.json`,优先级高于配置文件。
+**app 内设置(<kbd>⌘,</kbd>)。** 上面大部分选项 —— 主题、字体、字号、语音引擎与 HTTP 接口、识别语言、自动标点、LLM 提供方与 Key、纠错 —— 以及完成提示音、会话历史、默认文件夹、历史行数、命令输入颜色、加载文件夹,都能在面板里直接改,存到 `settings.json`,优先级高于配置文件;文本框清空即回退配置文件的值。麦克风、热词、按住时长、配色覆盖等仍写配置文件。
 
 ### 可选:本地 Ollama
 
@@ -228,7 +232,8 @@ VoiceGhostty 会在 `~/.config/voiceghostty/shell-rs/` 生成一层 ZDOTDIR 包�
 麦克风(cpal → 16 kHz 重采样 → 裁掉首尾静音)
   → 识别引擎(内置 whisper.cpp / 外部命令 / OpenAI 兼容 HTTP)
   → 文本
-     ├─ [听写模式]     原样
+  → 个人词典(voice-replace)
+     ├─ [听写模式]     口述符号(「点」→ .)→ 原样
      └─ [自然语言模式] 可选 Ollama 纠错 → LLM → 命令 + 解释
                           ├─ Claude API
                           └─ 本地 Ollama
@@ -240,7 +245,7 @@ VoiceGhostty 会在 `~/.config/voiceghostty/shell-rs/` 生成一层 ZDOTDIR 包�
 
 | crate | 内容 |
 |---|---|
-| `vg-core` | 配置、GUI 设置、主题、自然语言→命令(Claude / Ollama)、zsh 集成、加载器。没有 GUI 依赖 |
+| `vg-core` | 配置、GUI 设置、主题、自然语言→命令(Claude / Ollama)、zsh 集成、加载器、Claude 用量台账与省钱规则。没有 GUI 依赖 |
 | `vg-voice` | 麦克风采集、重采样、裁静音、可插拔识别引擎、提示音 |
 | `vg-app` | egui 窗口 + alacritty_terminal 终端 + 按住说话 + 语音流水线 |
 
@@ -259,6 +264,7 @@ VoiceGhostty 会在 `~/.config/voiceghostty/shell-rs/` 生成一层 ZDOTDIR 包�
 - [x] zsh 集成:状态灯、完成提示音、输入行着色、标签名跟随工作目录
 - [x] 会话记录落盘、Claude 上下文占用显示
 - [x] 首次启动一键下载 whisper 模型
+- [x] 用量洞察:Token / 费用台账、提示缓存倒计时、省钱建议
 - [ ] 英文界面
 - [ ] Linux / Windows 预编译包
 - [ ] 命令上下文感知、危险命令分级、语音修正、TTS 朗读

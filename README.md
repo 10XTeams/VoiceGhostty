@@ -6,7 +6,7 @@
 
 **A voice-first terminal for Claude Code — hold space, talk, and your words land at the command line.**
 
-Written in Rust. Prebuilt for macOS, builds from source on Linux / Windows. Push-to-talk, offline whisper recognition, natural-language → command, tabs & splits, and one-click Claude Code *skill* loading.
+Written in Rust. Prebuilt for macOS, builds from source on Linux / Windows. Push-to-talk, offline whisper recognition, natural-language → command, tabs & splits, one-click Claude Code *skill* loading, and Claude Code usage insights.
 
 [![Build & Release](https://github.com/10XTeams/VoiceGhostty/actions/workflows/release.yml/badge.svg)](https://github.com/10XTeams/VoiceGhostty/actions/workflows/release.yml)
 [![Latest release](https://img.shields.io/github/v/release/10XTeams/VoiceGhostty?sort=semver)](https://github.com/10XTeams/VoiceGhostty/releases)
@@ -35,28 +35,31 @@ Working with [Claude Code](https://claude.com/claude-code) means a lot of "type 
 - **Say what you want, get the command.** Natural-language mode turns *"undo the last commit but keep the changes"* into `git reset --soft HEAD~1` — with a one-line explanation before you run it.
 - **Never surprise-executes.** Recognized text is dropped at the cursor with newlines stripped. **You** press Enter. Always.
 - **Load Claude Code skills, agents and plugins on the fly.** Add folders once; each is scanned for all three, and the 🧩 panel gives each kind its own tab. Skills and agents are synced into the current project's `.claude/` followed by `/reload-skills`; plugins are switched on for this project alone.
+- **See where your tokens go.** <kbd>⌘I</kbd> breaks Claude Code token usage and its dollar cost down by model, project and session, and points out what's being wasted — read from local transcripts, no API calls.
 
 ## Features
 
 | | |
 |---|---|
-| 🎙 **Push-to-talk** | Hold <kbd>Space</kbd> (≥0.25s) to record, release to stop. A quick tap still types a space. Or <kbd>⌘⇧M</kbd> to toggle. With a local engine you get **live captions** as you speak; the final pass decides what is typed. |
-| 🔌 **Pluggable recognition** | Built-in [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (offline, Metal-accelerated on macOS, model preloaded at launch); or any **external command** that reads a WAV and prints text; or an OpenAI-compatible **HTTP transcription API** (OpenAI, Groq, a local faster-whisper…). `auto` picks whatever is available. |
-| 🗣 **Voice commands** | Say just "clear screen", "new tab", "tab 2", "split right" or "undo" and it runs directly, nothing typed, no model call; whole utterances only, so sentences containing those words are unaffected. |
-| 🧠 **Two voice modes** | *Dictation* (verbatim) and *Natural language* (Claude API or local Ollama → command + explanation, optionally with an Ollama cleanup pass first). <kbd>⌘⇧N</kbd> toggles. |
+| 🎙 **Push-to-talk** | Hold <kbd>Space</kbd> (≥0.25s) to record, release to stop. A quick tap still types a space. Or <kbd>⌘⇧M</kbd> to toggle. The talk key can be moved to a non-typing key like F13, and on macOS a **global hotkey** lets you talk while the window is in the background. With a local engine you get **live captions** as you speak; the final pass decides what is typed. With focus in the search or rename box, your words go there instead. |
+| 🔌 **Pluggable recognition** | Built-in [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (offline, Metal-accelerated on macOS, model preloaded at launch; **one-click model download** on first launch, proxy- and mirror-aware, resumable); or any **external command** that reads a WAV and prints text; or an OpenAI-compatible **HTTP transcription API** (OpenAI, Groq, a local faster-whisper…). `auto` picks whatever is available. File names in the current directory and the git branch are passed as **hotwords**, so project names come out right. |
+| 🗣 **Voice commands & undo** | Say just "clear screen", "new tab", "tab 2", "split right" or "usage" and it runs directly, nothing typed, no model call; whole utterances only, so sentences containing those words are unaffected. Misheard? <kbd>⌘Z</kbd> or saying "undo" removes the last voice insertion. |
+| 🧠 **Two voice modes** | *Dictation*: verbatim, after only a **personal dictionary** (fix words it keeps mishearing) and **spoken symbols** ("cargo dot toml" → `cargo.toml`, "dash l" → `-l`). *Natural language*: Claude API or local Ollama → command + explanation, optionally given the last 40 screen lines and the previous command's exit code so "why did that fail?" has context; an Ollama cleanup pass can run first. <kbd>⌘⇧N</kbd> toggles. |
 | 🌏 **Chinese & English** | Recognition language `zh` / `en` / `auto`. Automatic punctuation is on by default; turn it off when you mostly dictate shell commands. |
-| 🚦 **Status lights** | Every tab and pane shows blue / yellow / green / orange — idle, running, finished-and-waiting-on-you, **stuck waiting for your input** (Claude Code asking for permission, `[y/N]`, a password). Exact under zsh via shell integration; inferred from output and bells inside full-screen programs like `claude` or `vim`. The pane you're looking at still turns yellow while it works, but skips green / orange; background windows still update. <kbd>⌘B</kbd> swaps the top tab bar for a pane list on the left to spot the orange one at a glance. |
+| 🚦 **Status lights** | Every tab and pane shows blue / yellow / green / orange — idle, running, finished-and-waiting-on-you, **stuck waiting for your input** (Claude Code asking for permission, `[y/N]`, a password). Exact under zsh via shell integration; inferred from output and bells inside full-screen programs like `claude` or `vim`. The pane you're looking at still turns yellow while it works, but skips green / orange; background windows still update. <kbd>⌘B</kbd> swaps the top tab bar for a pane list on the left to spot the orange one at a glance; the list can close, rename and open tabs too. |
 | 🔔 **Done chime & background notifications** | A synthesized sound the moment a pane turns green, at most once every 5 seconds; when the window is in the background, a system notification also says which folder finished or is waiting for you. Both switchable in Settings. |
 | 🗂 **Tabs & nested splits** | <kbd>⌘T</kbd> / <kbd>⌘W</kbd>, <kbd>⌘1…⌘9</kbd>. <kbd>⌘D</kbd> / <kbd>⌘⇧D</kbd> split the **active pane** and repeat: three <kbd>⌘D</kbd> give three even columns, a perpendicular split makes a grid; the new pane's shell starts in the original pane's current directory. Drag a separator to resize (double-click to even out), <kbd>⌘⇧↩</kbd> to zoom the active pane. <kbd>⌘⌥</kbd>+arrows move focus across the split tree. Tabs name themselves after their working directory; double-click to rename, middle-click to close. |
 | ↗️ **Move a split to another tab** | <kbd>⌘⌃1…8</kbd> sends the focused pane to the Nth tab, <kbd>⌘⌃←→</kbd> to the neighbouring tab, <kbd>⌘⌃T</kbd> out into a tab of its own. The shell keeps running and scrollback comes along. |
 | 🧩 **Dynamic skill / agent loading** | Checkbox panel (<kbd>⌘L</kbd>): a folder's skills (subfolders with `SKILL.md`) and agents (`.md` files with front matter) are found automatically; apply and they're copied into `cwd/.claude/skills/` and `cwd/.claude/agents/`, never overwriting what's there; unchecking removes them. Auto-runs `/reload-skills` and `/reload-plugins`. |
 | 🧩 **Per-project plugins** | A folder carrying `.claude-plugin/marketplace.json` (or `plugin.json`) lists its plugins in the Plugins tab. Checking one edits only `enabledPlugins` and `extraKnownMarketplaces` in `cwd/.claude/settings.local.json`; everything else in that file is left alone. |
 | 🧩 **No duplicate names** | A skill, agent or plugin name offered by two folders is owned by the first folder in the list; the later one is shown disabled and badged *duplicate*. |
-| 📊 **Claude context usage** | While Claude Code runs in the foreground pane, the status bar shows `claude ▬ 65K / 1M · 7%`, read from the transcripts under `~/.claude/projects/`. Orange at 70%, red at 90%. |
+| 📊 **Claude context usage** | While Claude Code runs in the foreground pane, the status bar shows `claude ▬ 65K / 1M · 7%`, read from the transcripts under `~/.claude/projects/`. Orange at 70%, red at 90%. While claude waits for your reply, a **prompt-cache countdown** `⏱ 4:12` sits next to it — answer before it runs out and you skip paying to rewrite the cache. Click the meter to open that project's sessions. |
+| 📈 **Usage insights** | <kbd>⌘I</kbd> or say "usage": Claude Code's local transcripts (subagents included) are distilled into a numbers-only ledger, shown by vendor / model, project and session — total tokens, cost at official prices and a daily chart, over 7 or 30 days. The Tips tab uses fixed rules to spot waste — resuming after the cache expired, a project whose opening context is unusually heavy — ranked by potential savings. Local only, no API calls; Claude Code deletes transcripts after ~30 days, the ledger keeps them by default. |
 | 🎨 **Themes & search** | Dark / Light / Solarized Dark / Dracula, with the whole UI palette derived from the terminal theme. <kbd>⌘F</kbd> searches scrollback and selects the match so you can copy it; live font resize; <kbd>⌘K</kbd> clear. |
+| 🖱 **Terminal details** | True color, wide-character / CJK alignment, IME candidate window at the cursor; <kbd>⌘</kbd>+click opens links; click on the prompt line to move the cursor there; the scroll wheel works inside mouse-grabbing full-screen apps (vim, htop, codex); bracketed paste keeps pasted text from executing. |
 | 📜 **Session history** | Every pane writes `~/.config/voiceghostty/history/<folder>-<start time>.log` — what the terminal actually displayed, not the raw byte stream. |
 | ✨ **Claude quick-launch** | Save project dirs; one click runs `cd <dir> && claude` in the active pane. "New project…" creates a folder under your projects directory, saves it and launches straight away. |
-| ⚙️ **Settings panel** | <kbd>⌘,</kbd>: speech engine, recognition language, punctuation, done chime, session history, default folder for new tabs, scrollback lines, theme, command-input color, loader folders. Changes apply immediately and win over the config file. |
+| ⚙️ **Settings panel** | <kbd>⌘,</kbd>, in five tabs — Terminal / Appearance / Voice / Natural language / Data: default folder, scrollback, loader folders; theme, font, font size, command-input color; speech engine and API, recognition language, talk key, voice dictionary; LLM provider, key and model; where runtime data lives, how often session history is saved, usage insights. Changes apply immediately and win over the config file. |
 | 🎨 **Colored input** | The command line you type at the zsh prompt is highlighted in a color you choose; changing it applies live to every open tab. |
 | 🔒 **Safe by design** | Voice never auto-presses Enter. Newlines are stripped before insertion. With built-in whisper, audio never leaves your machine. API keys stay in a local config file. |
 
@@ -82,7 +85,9 @@ Press <kbd>⌘/</kbd> in the app for the full table. Linux / Windows don't use p
 | Search / clear / select all | <kbd>⌘F</kbd> / <kbd>⌘K</kbd> / <kbd>⌘A</kbd> | <kbd>Ctrl⇧F</kbd> / <kbd>K</kbd> / <kbd>A</kbd> |
 | Copy | <kbd>⌘C</kbd> | <kbd>Ctrl⇧C</kbd> (plain Ctrl+C still interrupts) |
 | Open link | <kbd>⌘</kbd>+click | <kbd>Ctrl</kbd>+click |
-| Loader / settings / shortcut table | <kbd>⌘L</kbd> / <kbd>⌘,</kbd> / <kbd>⌘/</kbd> | <kbd>Ctrl⇧L</kbd> / <kbd>,</kbd> / <kbd>/</kbd> |
+| Pane list sidebar | <kbd>⌘B</kbd> | <kbd>Ctrl⇧B</kbd> |
+| Loader / usage insights | <kbd>⌘L</kbd> / <kbd>⌘I</kbd> | <kbd>Ctrl⇧L</kbd> / <kbd>I</kbd> |
+| Settings / shortcut table | <kbd>⌘,</kbd> / <kbd>⌘/</kbd> | <kbd>Ctrl⇧,</kbd> / <kbd>/</kbd> |
 | Font size | <kbd>⌘+</kbd> <kbd>⌘-</kbd> <kbd>⌘0</kbd> | <kbd>Ctrl⇧+</kbd> <kbd>-</kbd> <kbd>0</kbd> |
 
 ## Install
@@ -221,9 +226,11 @@ Unknown keys and malformed lines are ignored, never an error. Every key is docum
 
 > Apps launched from Finder don't inherit your shell env, so put the API key in the config file and `chmod 600` it.
 
-**In-app Settings (<kbd>⌘,</kbd>).** Speech engine, recognition language, punctuation, done chime, session
-history, default folder for new tabs, scrollback lines, command-input color and loader folders are editable in the panel, saved to
-`settings.json`, and win over the config file.
+**In-app Settings (<kbd>⌘,</kbd>).** Most of the options above — theme, font, font size, speech engine and HTTP API,
+recognition language, punctuation, LLM provider and key, correction — plus done chime, session history, default folder,
+scrollback, command-input color and loader folders are editable in the panel, saved to `settings.json`, and win over the
+config file; clearing a text field falls back to the config file. Microphone, hotwords, hold time and color overrides
+still live in the config file.
 
 ### Optional: local Ollama
 
@@ -265,7 +272,7 @@ Built on [egui](https://github.com/emilk/egui), [alacritty_terminal](https://cra
 
 | crate | Contents |
 |---|---|
-| `vg-core` | Config, GUI settings, themes, natural language → command (Claude / Ollama), zsh integration, loader. No GUI dependencies |
+| `vg-core` | Config, GUI settings, themes, natural language → command (Claude / Ollama), zsh integration, loader, Claude usage ledger and savings rules. No GUI dependencies |
 | `vg-voice` | Microphone capture, resampling, silence trimming, pluggable speech engines, chime |
 | `vg-app` | egui window + alacritty_terminal + push-to-talk + the voice pipeline |
 
@@ -291,6 +298,7 @@ then `scripts/release-cask.sh` updates the Homebrew cask.
 - [x] zsh integration: status lights, done chime, colored input line, cwd-derived tab titles
 - [x] Session transcripts on disk, Claude context usage display
 - [x] One-click whisper model download on first launch
+- [x] Usage insights: token / cost ledger, prompt-cache countdown, savings tips
 - [ ] English UI
 - [ ] Prebuilt Linux / Windows packages
 - [ ] Command-context awareness, dangerous-command tiering, voice edits, TTS readback
