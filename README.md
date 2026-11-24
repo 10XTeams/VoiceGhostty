@@ -25,6 +25,7 @@
 - 🚦 **See who's waiting on you** — a light per pane: idle / running / done / **needs your input** (Claude asking for permission, `[y/N]`). A chime when it turns green, a notification when you're away.
 - 📈 **See where your tokens go** — <kbd>⌘I</kbd> shows Claude Code usage and cost by model, project and session, a prompt-cache countdown, and tips to save. Local only, no API calls.
 - 🧩 **One-click skills, agents & plugins** — check them and they're installed into the project's `.claude/` and reloaded.
+- ⚡ **Quick buttons** — turn frequent commands into status-bar buttons; one click types them into the active pane, optionally pressing Enter. One set for the whole app.
 - 🗂 **Tabs & any-depth splits** — nest, drag to resize, move between tabs without interrupting the shell.
 
 Full feature list: [docs/FEATURES.md](docs/FEATURES.md)

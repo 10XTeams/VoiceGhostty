@@ -43,8 +43,7 @@ impl Tab {
 
 const TAB_ID: &str = "settings-tab";
 
-/// 截图测试用:直接切到第 `index` 个页签
-#[cfg(test)]
+/// 直接切到第 `index` 个页签(状态栏快捷按钮「编辑」、截图测试)
 pub(crate) fn select_tab(ctx: &egui::Context, index: usize) {
     ctx.data_mut(|d| d.insert_temp(egui::Id::new(TAB_ID), Tab::ALL[index]));
 }
@@ -214,6 +213,12 @@ impl VoiceGhosttyApp {
                 }
             });
         });
+
+        ui.add_space(10.0);
+        kit::section(ui, "快捷按钮");
+        if self.quick_buttons_section(ui) {
+            changed = true;
+        }
 
         ui.add_space(10.0);
         kit::section(ui, "加载文件夹");
@@ -582,6 +587,65 @@ impl VoiceGhosttyApp {
                 }
             });
         });
+        changed
+    }
+
+    /// 状态栏快捷按钮:名称 + 输入的内容 + 是否回车执行。整个应用一套
+    fn quick_buttons_section(&mut self, ui: &mut egui::Ui) -> bool {
+        let p = palette(ui.ctx());
+        let mut changed = false;
+        let mut action: Option<(usize, bool)> = None; // (下标, true=删除 / false=上移)
+        kit::card(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            ui.label(
+                RichText::new("显示在底部状态栏,所有窗口共用一套。点一下把内容输入到当前窗格;勾了「回车」的会直接执行,右键按钮可回到这里编辑")
+                    .font(style::small())
+                    .color(p.text3),
+            );
+            ui.add_space(2.0);
+            for (i, b) in self.settings.quick_buttons.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    let content_w = (ui.available_width() - 84.0 - 54.0 - 24.0 * 2.0 - 6.0 * 4.0).max(80.0);
+                    if ui.add_sized(vec2(84.0, 24.0), egui::TextEdit::singleline(&mut b.label).hint_text("名称")).changed() {
+                        changed = true;
+                    }
+                    let edit = egui::TextEdit::singleline(&mut b.text).hint_text("输入的内容,如 git status");
+                    if ui.add_sized(vec2(content_w, 24.0), edit).changed() {
+                        changed = true;
+                    }
+                    if ui.checkbox(&mut b.run, "回车").on_hover_text("输入后直接回车执行").changed() {
+                        changed = true;
+                    }
+                    if i > 0 {
+                        if kit::icon_button_sized(ui, Icon::ArrowUp, false, 24.0, 13.0).on_hover_text("上移").clicked() {
+                            action = Some((i, false));
+                        }
+                    } else {
+                        // 占住「上移」的位置(含间距),删除按钮才和下面几行对齐
+                        ui.add_space(24.0 + ui.spacing().item_spacing.x);
+                    }
+                    if kit::icon_button_sized(ui, Icon::Trash, false, 24.0, 13.0).on_hover_text("移除").clicked() {
+                        action = Some((i, true));
+                    }
+                });
+            }
+            if kit::button(ui, "添加按钮…", kit::Kind::Secondary, true).clicked() {
+                self.settings.quick_buttons.push(vg_core::settings::QuickButton::default());
+                changed = true;
+            }
+        });
+        match action {
+            Some((i, true)) => {
+                self.settings.quick_buttons.remove(i);
+                changed = true;
+            }
+            Some((i, false)) => {
+                self.settings.quick_buttons.swap(i - 1, i);
+                changed = true;
+            }
+            None => {}
+        }
         changed
     }
 

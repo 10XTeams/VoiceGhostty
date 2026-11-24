@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use egui_kittest::kittest::Queryable;
 use egui_kittest::Harness;
 
 use super::{VoiceGhosttyApp, VoiceUi};
@@ -143,6 +144,76 @@ fn shots() {
     settle(&mut h, Duration::from_millis(400));
     save(&mut h, &dir, "09-settings-dracula");
     // kittest 不调 on_exit:手动释放 whisper 模型,否则 Metal 后端在进程退出时 abort
+    drop(h);
+    vg_voice::shutdown();
+}
+
+fn quick_buttons() -> Vec<vg_core::settings::QuickButton> {
+    use vg_core::settings::QuickButton;
+    vec![
+        QuickButton { label: "状态".into(), text: "git status".into(), run: false },
+        QuickButton { label: "回显".into(), text: "echo vg-quick-$((40+2))".into(), run: true },
+        QuickButton { label: String::new(), text: "cargo test --workspace".into(), run: true },
+    ]
+}
+
+/// 点状态栏的快捷按钮:内容进当前窗格;勾了「回车」的会执行,没勾的只输入不执行
+#[test]
+fn quick_button_types_into_active_pane() {
+    let mut h = Harness::builder().with_size(SIZE).build_eframe(|cc| {
+        let mut app = VoiceGhosttyApp::new(cc);
+        app.settings.save_history = false;
+        app.settings.quick_buttons = quick_buttons();
+        app
+    });
+    let wait_for = |h: &mut Harness<'_, VoiceGhosttyApp>, want: &str| {
+        for _ in 0..100 {
+            h.step();
+            if h.state().active_session().unwrap().screen_tail(40).contains(want) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        false
+    };
+    settle(&mut h, Duration::from_secs(1));
+    h.get_by_label("回显").click();
+    // 执行了才会出现算好的 42
+    assert!(wait_for(&mut h, "vg-quick-42"), "回车执行的按钮应当执行命令");
+    h.get_by_label("状态").click();
+    assert!(wait_for(&mut h, "git status"), "按钮内容应输入到窗格");
+    settle(&mut h, Duration::from_millis(500));
+    let tail = h.state().active_session().unwrap().screen_tail(40);
+    assert!(!tail.contains("On branch") && !tail.contains("not a git repository"), "没勾回车的按钮不应执行:\n{tail}");
+    drop(h);
+    vg_voice::shutdown();
+}
+
+/// 状态栏快捷按钮与设置页的截图:VG_SHOTS=/tmp/shots cargo test -p vg-app quick_buttons_shots -- --ignored
+#[test]
+#[ignore]
+fn quick_buttons_shots() {
+    let Some(dir) = std::env::var_os("VG_SHOTS").map(PathBuf::from) else {
+        eprintln!("skipped: set VG_SHOTS=<dir>");
+        return;
+    };
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut h = Harness::builder()
+        .with_size(SIZE)
+        .with_pixels_per_point(2.0)
+        .wgpu()
+        .build_eframe(|cc| {
+            let mut app = VoiceGhosttyApp::new(cc);
+            app.settings.save_history = false;
+            app.settings.quick_buttons = quick_buttons();
+            app
+        });
+    settle(&mut h, Duration::from_secs(2));
+    save(&mut h, &dir, "10-quick-buttons");
+    h.state_mut().show_settings = true;
+    crate::settings_ui::select_tab(&h.ctx, 0);
+    settle(&mut h, Duration::from_millis(400));
+    save(&mut h, &dir, "10b-quick-buttons-settings");
     drop(h);
     vg_voice::shutdown();
 }

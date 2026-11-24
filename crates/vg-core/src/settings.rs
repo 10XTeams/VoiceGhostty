@@ -99,6 +99,45 @@ pub struct Settings {
     pub llm_screen_context: Option<bool>,
     /// 单价覆盖:模型 id → [输入, 缓存写 5 分钟, 缓存写 1 小时, 缓存读, 输出](每百万 token 美元)
     pub insights_prices: std::collections::BTreeMap<String, [f64; 5]>,
+    /// 状态栏上的快捷按钮,整个应用一套,与窗口 / 标签页无关
+    pub quick_buttons: Vec<QuickButton>,
+}
+
+/// 状态栏快捷按钮:点一下把 `text` 输入到当前活动窗格
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct QuickButton {
+    /// 按钮上显示的名字
+    pub label: String,
+    /// 输入到终端的内容
+    pub text: String,
+    /// 输入后是否回车执行;默认不回车,和语音一样由你来按
+    pub run: bool,
+}
+
+impl QuickButton {
+    /// 要写进终端的内容:不执行时去掉末尾换行,免得一点就跑;执行时补一个回车
+    pub fn payload(&self) -> Option<(String, bool)> {
+        let body = self.text.trim_end_matches(['\r', '\n']);
+        if body.is_empty() {
+            return None;
+        }
+        Some((body.to_string(), self.run))
+    }
+
+    /// 状态栏上显示的名字:没起名就用内容的开头
+    pub fn title(&self) -> String {
+        let label = self.label.trim();
+        if !label.is_empty() {
+            return label.to_string();
+        }
+        let first = self.text.trim().lines().next().unwrap_or("");
+        let mut t: String = first.chars().take(12).collect();
+        if first.chars().count() > 12 {
+            t.push('…');
+        }
+        t
+    }
 }
 
 impl Default for Settings {
@@ -130,6 +169,7 @@ impl Default for Settings {
             insights_muted_rules: BTreeSet::new(),
             insights_scan_minutes: 60,
             insights_prices: std::collections::BTreeMap::new(),
+            quick_buttons: Vec::new(),
             theme: None,
             font_family: None,
             font_size: None,
@@ -338,6 +378,20 @@ mod tests {
         assert_eq!(c.voice.engine, VoiceEngineKind::Http);
         assert_eq!(c.scrollback, 500);
         assert_eq!(c.skill_library_dirs, vec![PathBuf::from("/a")]);
+    }
+
+    #[test]
+    fn quick_button_payload_and_title() {
+        let b = QuickButton { label: String::new(), text: "git status\n".into(), run: false };
+        assert_eq!(b.payload(), Some(("git status".into(), false)));
+        assert_eq!(b.title(), "git status");
+        let b = QuickButton { label: " 构建 ".into(), text: "cargo build --release --workspace".into(), run: true };
+        assert_eq!(b.payload(), Some(("cargo build --release --workspace".into(), true)));
+        assert_eq!(b.title(), "构建");
+        assert_eq!(QuickButton { text: "cargo build --release".into(), ..Default::default() }.title(), "cargo build …");
+        assert_eq!(QuickButton { text: "\n".into(), ..Default::default() }.payload(), None);
+        let s: Settings = serde_json::from_str(r#"{"quick-buttons":[{"label":"a","text":"ls"}]}"#).unwrap();
+        assert_eq!(s.quick_buttons[0], QuickButton { label: "a".into(), text: "ls".into(), run: false });
     }
 
     #[test]

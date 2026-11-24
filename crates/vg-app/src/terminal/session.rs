@@ -16,7 +16,7 @@ use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::Line;
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::test::TermSize;
-use alacritty_terminal::term::{Config as TermConfig, Term};
+use alacritty_terminal::term::{Config as TermConfig, Term, TermMode};
 use alacritty_terminal::tty;
 use alacritty_terminal::vte::ansi::Rgb as AnsiRgb;
 
@@ -347,6 +347,22 @@ impl TerminalSession {
     pub fn type_text(&self, text: &str) {
         self.term.lock().scroll_display(Scroll::Bottom);
         self.write(text.as_bytes().to_vec());
+    }
+
+    /// 按粘贴的方式写入:程序开着括号粘贴就包起来(内容里的换行不会逐行执行),否则把换行转成回车
+    pub fn paste(&self, text: &str) {
+        let mode = {
+            let mut term = self.term.lock();
+            term.scroll_display(Scroll::Bottom);
+            *term.mode()
+        };
+        if mode.contains(TermMode::BRACKETED_PASTE) {
+            // 去掉内容里的结束标记,防止粘贴内容"逃出"括号模式直接执行
+            let clean = text.replace("\x1b[201~", "");
+            self.write(format!("\x1b[200~{clean}\x1b[201~").into_bytes());
+        } else {
+            self.write(text.replace("\r\n", "\r").replace('\n', "\r").into_bytes());
+        }
     }
 
     /// 改这个窗格保留的历史行数,立即生效(缩小会马上丢掉最老的行)

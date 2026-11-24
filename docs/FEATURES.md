@@ -105,7 +105,7 @@ The transcript goes through a **local correction pass** before reaching the LLM 
 - **Newlines stripped.** `\r` and `\n` are replaced with spaces and the ends trimmed before insertion, so a stray newline inside a sentence cannot trigger execution. Both the dictation and the natural-language path go through this.
 - **Empty results are reported**, not silently dropped ("didn't hear anything").
 - **Explanation first.** Natural-language mode surfaces "『intent』 → explanation" in the status bar, with dangerous operations flagged by the prompt contract.
-- Only two paths in the whole app press Return, and both are explicit clicks: `cd '<dir>' && claude` from the favourite-projects menu, and `/reload-skills` / `/reload-plugins` after the loader applies (several commands are sent 2 s apart, because a second slash command arriving while claude executes the first stays in its input box unsubmitted).
+- Only three paths in the whole app press Return, and all are explicit clicks: `cd '<dir>' && claude` from the favourite-projects menu, a quick button with "Return" ticked (§ 14.1), and `/reload-skills` / `/reload-plugins` after the loader applies (several commands are sent 2 s apart, because a second slash command arriving while claude executes the first stays in its input box unsubmitted).
 
 Source: `crates/vg-core/src/nl2command.rs` (`strip_newlines`), `crates/vg-app/src/terminal/session.rs` (`type_text`), `crates/vg-app/src/app.rs` (`pending_commands`)
 
@@ -475,6 +475,20 @@ disabled with a hint otherwise. An existing folder is reused without error.
 
 Source: `crates/vg-app/src/chrome.rs` (`projects_menu`, `new_project_dialog`), `crates/vg-core/src/settings.rs` (`projects_root`, `create_project_dir`), `crates/vg-core/src/shell.rs` (`launch_claude_command`, `quote`)
 
+### 14.1 Quick buttons
+
+A row of small buttons in the status bar, left of ✨, **one set for the whole app** (`quick-buttons` in `settings.json`),
+independent of windows and tabs. Each has a name, the text to enter, and a "Return" tick. A click enters the text into the
+**active pane** the way a paste does (wrapped in bracketed paste when the program has it on, so multi-line text doesn't run
+line by line), after scrolling to the bottom. Without "Return" trailing newlines are dropped and nothing runs; with it a
+Return follows and the command executes — those buttons carry a ▶. An unnamed button shows the first 12 characters of its
+text; buttons with no text are hidden. Hover shows the full text; right-click → "Edit quick buttons…" opens Settings on the
+Terminal tab.
+
+Add, edit, remove and reorder them in Settings › Terminal › Quick buttons; changes show up in the status bar immediately.
+
+Source: `crates/vg-core/src/settings.rs` (`QuickButton`), `crates/vg-app/src/chrome.rs` (`quick_buttons_bar`, `quick_chip`), `crates/vg-app/src/settings_ui.rs` (`quick_buttons_section`), `crates/vg-app/src/terminal/session.rs` (`paste`)
+
 ## 15. Settings panel (⚙️)
 
 <kbd>⌘,</kbd> or the gear in the status bar; a centred window whose subtitle says changes apply immediately.
@@ -490,6 +504,7 @@ Source: `crates/vg-app/src/chrome.rs` (`projects_menu`, `new_project_dialog`), `
 | Terminal | Default folder | Where <kbd>⌘T</kbd> new tabs and the first pane at launch start; home by default. The folder button picks a directory, ✕ resets to home; a directory that no longer exists falls back to home. Splits ignore it and follow the original pane (see §7). |
 | Terminal | Projects folder | Where ✨ favourite projects › "New project…" creates folders (see §14); follows the default folder when unset, ✕ resets to following it. |
 | Terminal | Scrollback lines | A drag-value field for 500–200 000, clamped automatically; applies immediately to panes that are already open. |
+| Terminal | Quick buttons | Per row: name, text to enter, "Return" tick, move up, remove; "Add button…" appends a row. See § 14.1. |
 | Appearance | Theme | Four swatches (terminal background, three ANSI colour dots and a foreground stroke); clicking recolours the whole UI and is saved (`theme`). |
 | Appearance | Terminal font / size | Font name (or part of the file name) is committed on blur and the fonts are reinstalled at once; an unknown name is flagged in the hint and falls back to the default monospace font. Size 8–48; ⌘0 returns to it. |
 | Appearance | Command input colour | Colour picker; mirrored to `~/.config/voiceghostty/input-color` and picked up live by the zsh hook in every open tab. |
@@ -507,7 +522,7 @@ the version and commit (`VoiceGhostty v1.0.0 (abc1234+)`, see § 18), with the b
 Settings made here are stored in `~/.config/voiceghostty/settings.json` (keys: `default-language`, `voice-engine`,
 `adds-punctuation`, `scrollback`, `save-history`, `input-color`, `done-sound`, `skill-library-dirs`,
 `loader-groups-collapsed`, `claude-dirs`, `default-dir`, `projects-dir`, `history-save-seconds`, `theme`, `font-family`,
-`font-size`, `voice-api-url`, `voice-api-key`, `voice-api-model`, `voice-command`, `llm-*`). Text fields commit on blur; clearing one falls back to the config file / default. For the keys it shares with the config file the GUI setting wins; a key never
+`font-size`, `voice-api-url`, `voice-api-key`, `voice-api-model`, `voice-command`, `llm-*`, `quick-buttons`). Text fields commit on blur; clearing one falls back to the config file / default. For the keys it shares with the config file the GUI setting wins; a key never
 set in the GUI (`null`) falls back to the config file, which remains the power-user / fallback path. Saving settings also
 rewrites the `input-color` file.
 
@@ -579,7 +594,7 @@ Source: `crates/vg-core/src/config.rs`, `crates/vg-core/src/paths.rs`
   running in it, and a SIGWINCH landing mid-frame leaves a full-screen TUI drawn a row off until it repaints itself.
   Result messages fade out after 15 s; errors stay until the next message.
 - Status bar, left to right: the voice-mode segmented control, the voice capsule (§ 1), the result of the last action;
-  at the right end ✨ favourite projects, 🧩 loader, ⌨ shortcut reference, ⚙️ Settings, and the claude usage meter (§ 12).
+  at the right end quick buttons (§ 14.1), ✨ favourite projects, 🧩 loader, ⌨ shortcut reference, ⚙️ Settings, and the claude usage meter (§ 12).
 - **Closing the window asks first**: the system's close request is intercepted (on macOS the Quit menu item and <kbd>⌘Q</kbd> go the same way: at startup that item's action is changed from a direct `terminate:` to `performClose:`, the same path as the ✕ button, see `crates/vg-app/src/macos.rs`) and a modal
   "Quit VoiceGhostty?" states how many panes' shells would be hung up; <kbd>Return</kbd> quits, <kbd>Esc</kbd> cancels.
   Exceptions: closing the last split or tab with <kbd>⌘W</kbd> / ✕ is an explicit action and quits without asking, as

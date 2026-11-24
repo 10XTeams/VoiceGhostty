@@ -328,6 +328,7 @@ impl VoiceGhosttyApp {
                     self.toggle_insights(crate::insights_panel::Tab::Advice, false);
                 }
                 self.projects_menu(ui);
+                self.quick_buttons_bar(ui, &p);
                 if let Some(usage) = usage {
                     ui.add_space(8.0);
                     let idle = self.active_session().is_some_and(|s| s.shared.status() == vg_core::SessionStatus::Done);
@@ -679,6 +680,51 @@ impl VoiceGhosttyApp {
         resp.on_hover_text(&self.status.text);
     }
 
+    // MARK: 快捷按钮
+
+    /// 状态栏上的快捷按钮(设置 → 终端 → 快捷按钮 里维护,整个应用一套)。
+    /// 点一下把内容输入到当前活动窗格;只有勾了「回车执行」的才会自动回车
+    fn quick_buttons_bar(&mut self, ui: &mut Ui, p: &Palette) {
+        // 还没填内容的(刚在设置里点了「添加」)先不显示
+        if self.settings.quick_buttons.iter().all(|b| b.payload().is_none()) {
+            return;
+        }
+        ui.add_space(6.0);
+        let mut fire = None;
+        let mut edit = false;
+        // 右到左排:倒着放,屏幕上才是设置里的顺序
+        for (i, b) in self.settings.quick_buttons.iter().enumerate().rev() {
+            if b.payload().is_none() {
+                continue;
+            }
+            let resp = quick_chip(ui, p, &b.title(), b.run);
+            let how = if b.run { "点击输入并回车执行" } else { "点击输入到当前窗格(不回车)" };
+            let resp = resp.on_hover_text(format!("{}\n\n{how} · 右键编辑", b.text.trim()));
+            if resp.clicked() {
+                fire = Some(i);
+            }
+            resp.context_menu(|ui| {
+                if ui.button("编辑快捷按钮…").clicked() {
+                    edit = true;
+                    ui.close();
+                }
+            });
+            ui.add_space(2.0);
+        }
+        if let Some((text, run)) = fire.and_then(|i| self.settings.quick_buttons[i].payload()) {
+            if let Some(s) = self.active_session() {
+                s.paste(&text);
+                if run {
+                    s.write(b"\r".to_vec());
+                }
+            }
+        }
+        if edit {
+            self.show_settings = true;
+            crate::settings_ui::select_tab(ui.ctx(), 0);
+        }
+    }
+
     // MARK: 常用项目
 
     pub(crate) fn projects_menu(&mut self, ui: &mut Ui) {
@@ -927,6 +973,32 @@ impl VoiceGhosttyApp {
             });
         });
     }
+}
+
+/// 状态栏快捷按钮:细边框圆角小块;会回车执行的带一个 ▶
+fn quick_chip(ui: &mut Ui, p: &Palette, title: &str, run: bool) -> egui::Response {
+    let galley = ui.painter().layout_no_wrap(title.to_string(), style::small(), p.text2);
+    let icon_w = if run { 14.0 } else { 0.0 };
+    let size = vec2(galley.size().x + 16.0 + icon_w, 24.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, title));
+    let fill = if resp.is_pointer_button_down_on() {
+        p.pressed
+    } else if resp.hovered() {
+        p.hover
+    } else {
+        Color32::TRANSPARENT
+    };
+    ui.painter().rect(rect, 6.0, fill, Stroke::new(1.0, p.border), egui::StrokeKind::Inside);
+    let color = if resp.hovered() { p.text } else { p.text2 };
+    if run {
+        let r = Rect::from_center_size(pos2(rect.min.x + 13.0, rect.center().y), vec2(12.0, 12.0));
+        icons::paint(ui.painter(), r, 9.0, Icon::Play, p.accent);
+    }
+    let text_pos = pos2(rect.min.x + 8.0 + icon_w, rect.center().y - galley.size().y / 2.0);
+    ui.painter().galley(text_pos, galley, color);
+    resp
 }
 
 /// 胶囊底(悬停时出底色),内容横排

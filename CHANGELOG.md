@@ -7,7 +7,11 @@
 
 ## [未发布]
 
+## [1.1.0] — 2026-11-24
+
 ### 新增
+- 快捷按钮:底部状态栏的一排按钮,点一下把预设内容输入到当前窗格;每个按钮可选「回车」直接执行(带 ▶ 标记),默认只输入不执行。
+  整个应用一套,在「设置 → 终端 → 快捷按钮」里增删、排序,右键按钮可直接去编辑。
 - 用量洞察(<kbd>⌘I</kbd>):后台把 Claude Code 的本地会话记录(含子代理)整理成只有数字的台账,面板按厂家 / 模型、项目、会话看
   Token 总量和折合费用、每日用量图;给出省 token 的建议(缓存过期后接着聊、起步上下文偏重)。只读本机,不调 API。
   状态栏用量条可点击(打开该项目的会话),claude 等你回复时显示提示缓存倒计时。语音说「用量」也能打开。
@@ -60,5 +64,6 @@
 - 设置面板、四套主题、配置文件 `~/.config/voiceghostty/config`。
 - macOS 预编译包(ad-hoc 签名)与 Homebrew cask;Linux / Windows 可从源码构建。
 
-[未发布]: https://github.com/10XTeams/VoiceGhostty/compare/v1.0.0...HEAD
+[未发布]: https://github.com/10XTeams/VoiceGhostty/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/10XTeams/VoiceGhostty/releases/tag/v1.1.0
 [1.0.0]: https://github.com/10XTeams/VoiceGhostty/releases/tag/v1.0.0

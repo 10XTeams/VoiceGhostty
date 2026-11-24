@@ -224,7 +224,7 @@ fn handle_input(
             }
             Event::Paste(text) => {
                 state.typed_seq += 1;
-                paste(session, mode, &text);
+                session.paste(&text);
             }
             // macOS:⌘C 复制选区。Linux/Windows:egui 把 Ctrl+C 也变成复制事件——
             // 带 Shift(Ctrl+Shift+C)才是复制,否则它在终端里应该是中断(^C)
@@ -396,17 +396,6 @@ fn click_to_move_cursor(session: &TerminalSession, rect: Rect, cw: f32, ch: f32,
 fn copy_selection(ui: &egui::Ui, session: &TerminalSession) {
     if let Some(text) = session.term.lock().selection_to_string().filter(|t| !t.is_empty()) {
         ui.ctx().copy_text(text);
-    }
-}
-
-fn paste(session: &TerminalSession, mode: TermMode, text: &str) {
-    session.term.lock().scroll_display(Scroll::Bottom);
-    if mode.contains(TermMode::BRACKETED_PASTE) {
-        // 去掉内容里的结束标记,防止粘贴内容"逃出"括号模式直接执行
-        let clean = text.replace("\x1b[201~", "");
-        session.write(format!("\x1b[200~{clean}\x1b[201~").into_bytes());
-    } else {
-        session.write(text.replace("\r\n", "\r").replace('\n', "\r").into_bytes());
     }
 }
 

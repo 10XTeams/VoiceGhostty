@@ -100,7 +100,7 @@
 - **剥离换行。** 插入前把 `\r` / `\n` 替换成空格并去掉首尾空白,句子里混进的换行不会触发执行。听写和自然语言两条路径都过这一步。
 - **空结果会提示**(「没听到声音」),不静默丢弃。
 - **先看解释。** 自然语言模式在状态栏给出「『意图』→ 解释」,提示词约定要求对危险操作做出标注。
-- 全 App 只有两处会真正回车,都是用户显式点击触发的:常用项目菜单的 `cd '<目录>' && claude`,以及加载器应用后的 `/reload-skills` / `/reload-plugins`(多条之间隔 2 秒依次发送,因为 claude 执行第一条斜杠命令时第二条若到达会停在输入框里不提交)。
+- 全 App 只有三处会真正回车,都是用户显式点击触发的:常用项目菜单的 `cd '<目录>' && claude`,勾了「回车」的快捷按钮(第 14.1 节),以及加载器应用后的 `/reload-skills` / `/reload-plugins`(多条之间隔 2 秒依次发送,因为 claude 执行第一条斜杠命令时第二条若到达会停在输入框里不提交)。
 
 源文件:`crates/vg-core/src/nl2command.rs`(`strip_newlines`)、`crates/vg-app/src/terminal/session.rs`(`type_text`)、`crates/vg-app/src/app.rs`(`pending_commands`)
 
@@ -392,6 +392,17 @@
 
 源文件:`crates/vg-app/src/chrome.rs`(`projects_menu`、`new_project_dialog`)、`crates/vg-core/src/settings.rs`(`projects_root`、`create_project_dir`)、`crates/vg-core/src/shell.rs`(`launch_claude_command`、`quote`)
 
+### 14.1 快捷按钮
+
+状态栏右侧、✨ 左边的一排小按钮,**整个应用一套**(存在 `settings.json` 的 `quick-buttons`),与窗口、标签页无关。每个按钮三项:
+名称、输入的内容、是否「回车」。点一下把内容输入到**当前活动窗格**:按粘贴的方式写入(程序开着括号粘贴就包起来,多行内容不会逐行执行),
+先滚到底部;不勾「回车」时去掉内容末尾的换行,只输入不执行;勾了的在内容后补一个回车直接执行,按钮上带 ▶ 标记。名称为空时显示内容的
+前 12 个字;内容为空的按钮不显示。悬停看完整内容,右键「编辑快捷按钮…」打开设置的「终端」页。
+
+在设置「终端 › 快捷按钮」里增删、编辑、上移调整顺序,改动立即出现在状态栏。
+
+源文件:`crates/vg-core/src/settings.rs`(`QuickButton`)、`crates/vg-app/src/chrome.rs`(`quick_buttons_bar`、`quick_chip`)、`crates/vg-app/src/settings_ui.rs`(`quick_buttons_section`)、`crates/vg-app/src/terminal/session.rs`(`paste`)
+
 ## 15. 设置面板(⚙️)
 
 <kbd>⌘,</kbd> 或状态栏齿轮按钮,居中浮窗,「改动立即生效」。
@@ -411,6 +422,7 @@
 | 终端 | 默认文件夹 | <kbd>⌘T</kbd> 新标签页和启动时第一个窗格的起始目录,默认家目录;文件夹按钮选目录,✕ 恢复为家目录。目录已不存在时回到家目录。分屏不受它影响,跟随原窗格(见第 7 节)。 |
 | 终端 | 项目目录 | ✨ 常用项目「新建项目」在这里建文件夹(见第 14 节);没设就跟随默认文件夹,✕ 恢复为跟随。 |
 | 终端 | 历史行数 | 500–200000 的拖拽数值框,超范围自动夹回;立即应用到已打开的分屏。 |
+| 终端 | 快捷按钮 | 每行:名称、输入的内容、「回车」勾选、上移、移除;「添加按钮…」新增一行。见第 14.1 节。 |
 | 外观 | 主题 | 四个色块(终端底色 + 三个 ANSI 色点 + 前景色一道),点选即换整套界面并保存(`theme`)。 |
 | 外观 | 终端字体 / 字号 | 字体名(或文件名的一部分)失焦时提交并立即重装字体,找不到时说明文字提示、回退默认等宽字体;字号 8–48,⌘0 回到这里的值。 |
 | 外观 | 命令输入颜色 | 取色器;写入 `~/.config/voiceghostty/input-color`,由 zsh 钩子在所有已打开标签页实时读取生效。 |
@@ -425,7 +437,7 @@
 右下角显示版本与提交号(`VoiceGhostty v1.0.0 (abc1234+)`,见第 18 节),悬停看构建时间。
 
 这里改的设置存 `~/.config/voiceghostty/settings.json`(键:`default-language`、`voice-engine`、`adds-punctuation`、`scrollback`、
-`save-history`、`input-color`、`done-sound`、`skill-library-dirs`、`loader-groups-collapsed`、`claude-dirs`、`default-dir`、`projects-dir`、`history-save-seconds`、`theme`、`font-family`、`font-size`、`voice-api-url`、`voice-api-key`、`voice-api-model`、`voice-command`、`llm-*`)。文本框失焦才提交,清空即回退配置文件 / 默认值。与配置文件共有的键,
+`save-history`、`input-color`、`done-sound`、`skill-library-dirs`、`loader-groups-collapsed`、`claude-dirs`、`default-dir`、`projects-dir`、`history-save-seconds`、`theme`、`font-family`、`font-size`、`voice-api-url`、`voice-api-key`、`voice-api-model`、`voice-command`、`llm-*`、`quick-buttons`)。文本框失焦才提交,清空即回退配置文件 / 默认值。与配置文件共有的键,
 GUI 设置优先;没在 GUI 里设过的(`null`)回退配置文件。配置文件仍是进阶/兜底路径。每次保存设置也顺手把 `input-color` 文件写一遍。
 
 所有浮窗(设置、🧩 加载器、快捷键表、退出确认)都是 egui 的居中窗口:没有默认标题栏,自绘左对齐标题 + 右上角 ✕,
@@ -489,7 +501,7 @@ GUI 设置优先;没在 GUI 里设过的(`null`)回退配置文件。配置文�
 - 布局:顶部标签栏(38 pt)、底部状态栏(34 pt)、中间终端区。底部状态栏**始终占位**(没消息时是空的),且永远只有一行(过长截断,
   完整内容在悬停提示里)。有消息才出现、消息一长就换行的状态条,会连带把终端的行数改掉 —— SIGWINCH 正巧落在某一帧中间时,
   全屏 TUI 就会被画错一行,直到它自己重绘才恢复。结果消息 15 秒后淡出,错误一直留到下一条。
-- 状态栏从左到右:语音模式分段控件、语音胶囊(第 1 节)、上一次操作的结果;右端:✨ 常用项目、🧩 加载器、⌨ 快捷键表、⚙️ 设置,
+- 状态栏从左到右:语音模式分段控件、语音胶囊(第 1 节)、上一次操作的结果;右端:快捷按钮(第 14.1 节)、✨ 常用项目、🧩 加载器、⌨ 快捷键表、⚙️ 设置,
   以及 claude 用量表(第 12 节)。
 - **关窗口先确认**:系统的关闭请求被拦下(macOS 上菜单「退出」与 <kbd>⌘Q</kbd> 也一样:启动时把该菜单项的动作从直接 `terminate:` 改成 `performClose:`,和点 ✕ 走同一条路,见 `crates/vg-app/src/macos.rs`),弹出模态框「退出 VoiceGhostty?」并写明有几个窗格里的 shell
   会被挂断,<kbd>回车</kbd> 退出、<kbd>Esc</kbd> 取消。例外:用 <kbd>⌘W</kbd> / ✕ 关掉最后一个分屏或标签页是明确的操作,
